@@ -84,7 +84,7 @@ def control_player(action, device_id, uri=None, position_ms=0):
 
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
-                title="Spotify Timer",
+                title="Cue Timer",
                 update_title=None,
                 external_scripts=[
                     "https://sdk.scdn.co/spotify-player.js",
@@ -135,7 +135,7 @@ app.layout = dbc.Container([
               data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
-    html.H1("Spotify Timer", className="text-center my-4"),
+    html.H1("Cue Timer", className="text-center my-4"),
 
     dbc.Card([
         dbc.CardHeader("Spiel-Timer"),

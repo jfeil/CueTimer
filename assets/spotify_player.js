@@ -11,7 +11,7 @@ window.onSpotifyWebPlaybackSDKReady = () => {
 // Initialize player
 function initializePlayer(token) {
     player = new Spotify.Player({
-        name: "Spotify Timer",
+        name: "Cue Timer",
         getOAuthToken: cb => cb(token),
         volume: 0.5,
     });

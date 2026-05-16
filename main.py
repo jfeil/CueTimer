@@ -119,85 +119,127 @@ app.layout = dbc.Container([
               data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
-    html.Br(),
-    dbc.Container([dbc.Progress(id="timer_progress", value=100, style={"height": "30px"})]),
-    html.Br(),
-    dbc.Container([dbc.Label("Timer"), dbc.Input(id="timer_data", type="number", value=default_time)]),
-    dbc.Container([dbc.Label("Musik ab"), dbc.Input(id="musik_start", type="number", value=default_musik)]),
-    html.Br(),
-    dbc.Container([dbc.ButtonGroup([
-        dbc.Button("Reset", id="reset_button", color="danger"),
-        dbc.Button("Start", id="start_button", color="success"),
-    ])]),
-    html.Br(),
-    dbc.Container([
-    html.Div(id="main", children=[
-        dbc.Button("Connect to Spotify", id="connect-button"),
-        html.H4(id="player-state-heading"),
-        html.Div(id="player-status"),
-        html.Div([
-            dbc.Button("⏮️", id="prev-btn"),
-            dbc.Button("▶️", id="play-btn"),
-            dbc.Button("⏸️", id="pause-btn"),
-            dbc.Button("⏭️", id="next-btn"),
-        ], id="player-controls", style={"marginTop": "1rem",
-                                        "display": "none"}),
-    ]),
-    html.Div(id="track-info"),
-    html.Div([
-        dcc.Slider(id="position-slider", min=0, max=1, step=1000, value=0,
-                   marks=None, updatemode="mouseup",
-                   tooltip={"placement": "bottom"}),
-        html.Small("0:00 / 0:00", id="position-label",
-                   className="text-muted"),
-    ], className="mt-2"),
-    html.Hr(),
-    dbc.Container([
-        html.H4("Songs suchen"),
-        dbc.InputGroup([
-            dbc.Input(id="search-input", placeholder="Titel oder Künstler…",
-                      debounce=True),
-            dbc.Button("Suchen", id="search-btn", color="primary"),
+    html.H1("Fussball Timer", className="text-center my-4"),
+
+    dbc.Card([
+        dbc.CardHeader("Spiel-Timer"),
+        dbc.CardBody([
+            dbc.Progress(id="timer_progress", value=100,
+                         className="mb-3", style={"height": "28px"}),
+            dbc.Row([
+                dbc.Col([
+                    dbc.Label("Spieldauer (Sekunden)"),
+                    dbc.Input(id="timer_data", type="number",
+                              value=default_time),
+                ], md=6),
+                dbc.Col([
+                    dbc.Label("Musik ab (Sek. Restzeit)"),
+                    dbc.Input(id="musik_start", type="number",
+                              value=default_musik),
+                ], md=6),
+            ], class_name="g-3"),
+            dbc.ButtonGroup([
+                dbc.Button([html.I(className="bi bi-arrow-counterclockwise me-2"),
+                            "Reset"], id="reset_button", color="danger",
+                           outline=True),
+                dbc.Button([html.I(className="bi bi-play-fill me-2"), "Start"],
+                           id="start_button", color="success"),
+            ], class_name="mt-3"),
         ]),
-        dbc.ListGroup(id="search-results", className="mt-2"),
+    ], class_name="mb-4"),
+
+    html.Div(id="connect-section", children=dbc.Card(dbc.CardBody([
+        html.P("Verbinde ein Spotify-Konto (Premium), um Musik zu "
+               "steuern.", className="text-muted mb-3"),
+        dbc.Button([html.I(className="bi bi-spotify me-2"),
+                    "Mit Spotify verbinden"], id="connect-button",
+                   color="success", size="lg"),
+        html.Div(id="status-message", className="mt-3 text-muted"),
+    ])), className="mb-4"),
+
+    html.Div(id="spotify-ui", style={"display": "none"}, children=[
+        dbc.Card([
+            dbc.CardHeader("Player"),
+            dbc.CardBody([
+                html.Div(id="track-info", className="mb-3"),
+                dcc.Slider(id="position-slider", min=0, max=1, step=1000,
+                           value=0, marks=None, updatemode="mouseup",
+                           tooltip={"placement": "bottom",
+                                    "transform": "msClock"}),
+                html.Small("0:00 / 0:00", id="position-label",
+                           className="text-muted"),
+                html.Div(dbc.ButtonGroup([
+                    dbc.Button(html.I(className="bi bi-skip-start-fill"),
+                               id="prev-btn", color="secondary",
+                               outline=True, title="Vorheriger Titel"),
+                    dbc.Button(html.I(className="bi bi-play-fill"),
+                               id="playpause-btn", color="primary",
+                               title="Wiedergabe / Pause"),
+                    dbc.Button(html.I(className="bi bi-skip-end-fill"),
+                               id="next-btn", color="secondary",
+                               outline=True, title="Nächster Titel"),
+                ], size="lg"), className="d-flex justify-content-center mt-3"),
+            ]),
+        ], class_name="mb-4"),
+
+        dbc.Card([
+            dbc.CardHeader("Songs suchen"),
+            dbc.CardBody([
+                dbc.InputGroup([
+                    dbc.Input(id="search-input",
+                              placeholder="Titel oder Künstler…",
+                              debounce=True),
+                    dbc.Button([html.I(className="bi bi-search me-2"),
+                                "Suchen"], id="search-btn", color="primary"),
+                ]),
+                dbc.ListGroup(id="search-results", className="mt-3"),
+            ]),
+        ], class_name="mb-4"),
+
+        dbc.Card([
+            dbc.CardHeader("Playlist hinzufügen"),
+            dbc.CardBody([
+                dbc.InputGroup([
+                    dbc.Select(id="playlist-select",
+                               placeholder="Eigene Playlist…"),
+                    dbc.Button("Playlists laden", id="load-playlists-btn",
+                               color="secondary", outline=True),
+                ], class_name="mb-2"),
+                dbc.InputGroup([
+                    dbc.Input(id="playlist-url",
+                              placeholder="…oder Playlist-Link / URI"),
+                    dbc.Button("Laden", id="playlist-load-btn",
+                               color="primary"),
+                ]),
+                dbc.Stack([
+                    html.Div(id="playlist-status",
+                             className="text-muted me-auto"),
+                    dbc.Button("Alle / keine", id="playlist-toggle-all",
+                               size="sm", color="secondary", outline=True),
+                ], direction="horizontal", gap=2, class_name="mt-3"),
+                dbc.Checklist(id="playlist-track-checklist", options=[],
+                              value=[], className="mt-2"),
+                dbc.ButtonGroup([
+                    dbc.Button("Auswahl hinzufügen",
+                               id="playlist-add-sel-btn", color="success",
+                               outline=True),
+                    dbc.Button("Alle hinzufügen", id="playlist-add-all-btn",
+                               color="success"),
+                ], class_name="mt-3"),
+            ]),
+        ], class_name="mb-4"),
+
+        dbc.Card([
+            dbc.CardHeader(dbc.Stack([
+                html.Span("Warteschlange", className="me-auto fw-bold"),
+                dbc.Button([html.I(className="bi bi-trash me-2"), "Leeren"],
+                           id="queue-clear", color="danger", size="sm",
+                           outline=True),
+            ], direction="horizontal", gap=2)),
+            dbc.CardBody(dbc.ListGroup(id="spotify-tracks", flush=True)),
+        ], class_name="mb-4"),
     ]),
-    html.Hr(),
-    dbc.Container([
-        html.H4("Playlist hinzufügen"),
-        dbc.InputGroup([
-            dbc.Select(id="playlist-select", placeholder="Eigene Playlist…"),
-            dbc.Button("Playlists laden", id="load-playlists-btn",
-                       color="secondary", outline=True),
-        ], className="mb-2"),
-        dbc.InputGroup([
-            dbc.Input(id="playlist-url",
-                      placeholder="…oder Playlist-Link / URI einfügen"),
-            dbc.Button("Laden", id="playlist-load-btn", color="primary"),
-        ]),
-        dbc.Stack([
-            html.Div(id="playlist-status", className="text-muted me-auto"),
-            dbc.Button("Alle / keine", id="playlist-toggle-all",
-                       size="sm", color="secondary", outline=True),
-        ], direction="horizontal", gap=2, className="mt-2"),
-        dbc.Checklist(id="playlist-track-checklist", options=[], value=[],
-                      className="mt-2"),
-        dbc.ButtonGroup([
-            dbc.Button("Auswahl hinzufügen", id="playlist-add-sel-btn",
-                       color="success", outline=True),
-            dbc.Button("Alle hinzufügen", id="playlist-add-all-btn",
-                       color="success"),
-        ], className="mt-2"),
-    ]),
-    html.Hr(),
-    dbc.Container([
-        dbc.Stack([
-            html.H4("Warteschlange", className="me-auto"),
-            dbc.Button("Leeren", id="queue-clear", color="secondary",
-                       size="sm", outline=True),
-        ], direction="horizontal", gap=2),
-        dbc.ListGroup(id="spotify-tracks", className="mt-2"),
-    ])])
-])
+], style={"maxWidth": "760px"}, className="pb-5")
 
 app.clientside_callback(
     """
@@ -311,27 +353,32 @@ def render_queue(queue):
         return dbc.ListGroupItem("Warteschlange ist leer.", color="dark")
     items = []
     for idx, t in enumerate(queue):
-        thumb = html.Img(src=t["img"], height="40px",
-                         className="me-2 rounded") if t.get("img") else None
+        thumb = html.Img(src=t["img"], height="44px",
+                         className="rounded") if t.get("img") else None
         items.append(dbc.ListGroupItem([
             dbc.Stack([
-                html.Span(f"⠿ {idx + 1}.", className="drag-handle text-muted me-2",
-                          style={"cursor": "grab", "touchAction": "none"},
+                html.Span([html.I(className="bi bi-grip-vertical"),
+                           f" {idx + 1}"],
+                          className="drag-handle text-muted",
+                          style={"cursor": "grab", "touchAction": "none",
+                                 "minWidth": "2.5rem"},
                           title="Ziehen zum Sortieren"),
                 thumb,
                 html.Div([
-                    html.Div(t["name"], className="fw-bold"),
+                    html.Div(t["name"], className="fw-bold text-truncate"),
                     html.Small(t["artist"], className="text-muted"),
-                ], className="me-auto"),
+                ], className="me-auto", style={"minWidth": "0"}),
                 html.Small(_fmt_duration(t["duration_ms"]),
-                           className="text-muted me-2"),
-                dbc.Button("▶", id={"type": "queue-play", "row": t["rowId"]},
-                           size="sm", color="success", outline=True,
+                           className="text-muted"),
+                dbc.Button(html.I(className="bi bi-play-fill"),
+                           id={"type": "queue-play", "row": t["rowId"]},
+                           size="sm", color="success",
                            title="Jetzt abspielen"),
-                dbc.Button("✕", id={"type": "queue-remove", "row": t["rowId"]},
+                dbc.Button(html.I(className="bi bi-x-lg"),
+                           id={"type": "queue-remove", "row": t["rowId"]},
                            size="sm", color="danger", outline=True,
                            title="Entfernen"),
-            ], direction="horizontal", gap=2),
+            ], direction="horizontal", gap=3),
             html.Div([
                 html.Small(f"Start ab {_fmt_duration(t.get('start_ms', 0))}",
                            className="text-muted"),
@@ -339,9 +386,9 @@ def render_queue(queue):
                     id={"type": "queue-start", "row": t["rowId"]},
                     min=0, max=max(t["duration_ms"], 1000), step=1000,
                     value=t.get("start_ms", 0), marks=None,
-                    tooltip={"placement": "bottom"},
+                    tooltip={"placement": "bottom", "transform": "msClock"},
                 ),
-            ], className="mt-1"),
+            ], className="mt-2"),
         ], id={"type": "queue-row", "row": t["rowId"]}))
     return items
 
@@ -411,16 +458,17 @@ def render_now_playing(nowplaying, queue):
     """
     entry = find_entry(queue, (nowplaying or {}).get("rowId"))
     if entry is None:
-        return html.Span("Kein Titel ausgewählt.", className="text-muted")
-    cover = html.Img(src=entry["img"], height="64px",
-                     className="me-2 rounded") if entry.get("img") else None
+        return html.Div("Kein Titel ausgewählt.",
+                        className="text-muted text-center py-3")
+    cover = html.Img(src=entry["img"], height="72px",
+                     className="rounded") if entry.get("img") else None
     return dbc.Stack([
         cover,
         html.Div([
-            html.Div(entry["name"], className="fw-bold"),
-            html.Small(entry["artist"], className="text-muted"),
-        ]),
-    ], direction="horizontal", gap=2)
+            html.Div(entry["name"], className="fw-bold fs-5 text-truncate"),
+            html.Div(entry["artist"], className="text-muted text-truncate"),
+        ], style={"minWidth": "0"}),
+    ], direction="horizontal", gap=3)
 
 
 @app.callback(
@@ -620,33 +668,41 @@ def add_playlist_tracks(_sel_clicks, _all_clicks, selected_ids,
 
 @app.callback(
     Output("spotify-ts", "data"),
-    Output("connect-button", "style"),
-    Output("player-state-heading", "children"),
-    Output("player-status", "children"),
-    Output("player-controls", "style"),
+    Output("connect-section", "style"),
+    Output("status-message", "children"),
+    Output("spotify-ui", "style"),
     State("spotify-ts", "data"),
     Input("spotify-status", "data"),
 )
 def update_main_layout(ts, status):
-    """Reflect the auth/player state without rebuilding the DOM.
+    """Show the connect prompt or the full player, never both.
 
-    Every control keeps a stable id in the layout; this only toggles
-    visibility and status text, so callbacks that target the transport
-    buttons always resolve.
+    Only toggles visibility/status text — every control keeps a stable
+    id in the layout so its callbacks always resolve.
     """
     if ts and ts >= status["ts"]:
-        return ts, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return ts, dash.no_update, dash.no_update, dash.no_update
 
-    shown = {"marginTop": "1rem"}
+    visible = {}
     hidden = {"display": "none"}
 
-    if status["state"] == "authenticated":
-        return (status["ts"], hidden, "✅ Authenticated with Spotify",
-                "Warte auf den Player…", hidden)
     if status["state"] == "player-ready":
-        return (status["ts"], hidden, "🎵 Spotify Web Player verbunden",
-                "Player ist bereit", shown)
-    return status["ts"], {}, "", "", hidden
+        return status["ts"], hidden, "", visible
+    if status["state"] == "authenticated":
+        return (status["ts"], visible,
+                "Verbunden — warte auf den Web Player…", hidden)
+    return status["ts"], visible, "", hidden
+
+@app.callback(
+    Output("playpause-btn", "children"),
+    Input("sdk-state", "data"),
+)
+def render_playpause_icon(sdk_state):
+    """Mirror the play/pause toggle to the actual player state."""
+    icon = "bi bi-pause-fill" if _audio_playing(sdk_state) \
+        else "bi bi-play-fill"
+    return html.I(className=icon)
+
 
 def _np(entry):
     """Build a now-playing record (the current song pointer)."""
@@ -673,8 +729,7 @@ def _start(entry, sdk_state, device_id):
 
 @app.callback(
     Output("nowplaying", "data", allow_duplicate=True),
-    Input("play-btn", "n_clicks"),
-    Input("pause-btn", "n_clicks"),
+    Input("playpause-btn", "n_clicks"),
     Input("next-btn", "n_clicks"),
     Input("prev-btn", "n_clicks"),
     Input({"type": "queue-play", "row": dash.ALL}, "n_clicks"),
@@ -684,24 +739,23 @@ def _start(entry, sdk_state, device_id):
     State("sdk-state", "data"),
     prevent_initial_call=True,
 )
-def playback_controls(_play_c, _pause_c, _next_c, _prev_c, row_clicks,
+def playback_controls(_pp_c, _next_c, _prev_c, row_clicks,
                       queue, device_id, nowplaying, sdk_state):
     """Translate transport buttons into a single playback intent.
 
-    next/prev play the new song only when audio is currently playing;
-    otherwise they just move the pointer (no audio) so the operator can
-    pre-set what plays next.
+    play/pause is one toggle; next/prev play the new song only when
+    audio is currently playing, otherwise they just move the pointer
+    (no audio) so the operator can pre-set what plays next.
     """
     trigger = dash.callback_context.triggered_id
     if trigger is None:
         return dash.no_update
     current_row = (nowplaying or {}).get("rowId")
 
-    if trigger == "pause-btn":
-        control_player("pause", device_id)
-        return dash.no_update
-
-    if trigger == "play-btn":
+    if trigger == "playpause-btn":
+        if _audio_playing(sdk_state):
+            control_player("pause", device_id)
+            return dash.no_update
         entry = find_entry(queue, current_row) or step_queue(queue, None,
                                                              "first")
         if entry is None:

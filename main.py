@@ -22,15 +22,21 @@ CLIENT_SECRET = os.environ["SPOTIFY_CLIENT_SECRET"]
 REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8050/callback")
 SCOPE = ("streaming,user-read-email,user-read-private,user-library-read,"
          "playlist-read-private,playlist-read-collaborative")
+# Where spotipy persists the OAuth token. In a container point this at
+# a mounted volume so a redeploy keeps the operator signed in.
+CACHE_PATH = os.environ.get("SPOTIFY_CACHE_PATH", ".cache")
 
 server = Flask(__name__)
-server.secret_key = os.urandom(24)
+# A stable key keeps Flask sessions valid across restarts/workers;
+# falls back to ephemeral when unset (fine for local single use).
+server.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
 
 # Spotipy OAuth
 oauth = SpotifyOAuth(client_id=CLIENT_ID,
                      client_secret=CLIENT_SECRET,
                      redirect_uri=REDIRECT_URI,
-                     scope=SCOPE)
+                     scope=SCOPE,
+                     cache_path=CACHE_PATH)
 
 
 def get_spotify():

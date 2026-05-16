@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+__pycache__
+*.py[oc]
+.pytest_cache
+.cache
+.env
+.idea
+.ipynb_checkpoints
+*.ipynb
+tests
+docker-compose.yml
+Dockerfile
+.dockerignore
+README.md

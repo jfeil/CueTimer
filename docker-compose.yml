@@ -1,0 +1,29 @@
+# Deployment template for Cue Timer.
+#
+# 1. Copy .env.example to .env and fill in the Spotify credentials.
+# 2. Set SPOTIFY_REDIRECT_URI to <public-url>/callback and register
+#    that exact URL in the Spotify developer dashboard.
+# 3. The Spotify Web Playback SDK only runs on https:// (or localhost),
+#    so put this behind a TLS-terminating reverse proxy in production.
+services:
+  cue-timer:
+    build: .
+    # Or use the image published by the GitHub Action instead of build:
+    # image: ghcr.io/<owner>/<repo>:latest
+    env_file: .env
+    environment:
+      # Must match the registered redirect URI exactly.
+      SPOTIFY_REDIRECT_URI: "https://your.domain/callback"
+      SPOTIFY_CACHE_PATH: "/data/.cache"
+      # Stable key keeps sessions valid across restarts; set a random
+      # value (e.g. `openssl rand -hex 32`).
+      SECRET_KEY: "change-me"
+    ports:
+      - "8050:8050"
+    volumes:
+      # Persists the OAuth token so a redeploy keeps you signed in.
+      - cue-timer-cache:/data
+    restart: unless-stopped
+
+volumes:
+  cue-timer-cache:

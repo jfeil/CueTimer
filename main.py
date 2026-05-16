@@ -135,6 +135,9 @@ app.layout = dbc.Container([
                     dbc.Label("Musik ab (Sek. Restzeit)"),
                     dbc.Input(id="musik_start", type="number",
                               value=default_musik),
+                    dbc.Checkbox(id="new-song-each",
+                                 label="Neuer Song für jeden Countdown",
+                                 value=False, class_name="mt-2"),
                 ], md=6),
             ], class_name="g-3"),
             html.Div(dbc.ButtonGroup([
@@ -877,26 +880,34 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
     State("device-id", "data"),
     State("nowplaying", "data"),
     State("sdk-state", "data"),
+    State("new-song-each", "value"),
     prevent_initial_call=True,
 )
-def apply_music_command(cmd, queue, device_id, nowplaying, sdk_state):
+def apply_music_command(cmd, queue, device_id, nowplaying, sdk_state,
+                        new_song_each):
     """Execute the timer's music intent against the player.
 
     "pause" stops playback. "play" starts the selected song (resuming
-    it if Spotify already has it loaded), or the first queue entry when
-    nothing is selected.
+    it if Spotify already has it loaded). When "Neuer Song für jeden
+    Countdown" is on it instead advances to the next queue entry, so a
+    fresh song plays every time the countdown reaches "Musik ab". With
+    nothing selected it starts the first entry.
     """
     if not cmd:
         return dash.no_update
     action = cmd.get("command")
-    entry = find_entry(queue, (nowplaying or {}).get("rowId"))
+    current_row = (nowplaying or {}).get("rowId")
 
     if action == "pause":
         control_player("pause", device_id)
         return dash.no_update
 
     if action == "play":
-        entry = entry or step_queue(queue, None, "first")
+        if new_song_each:
+            entry = step_queue(queue, current_row, "next")
+        else:
+            entry = find_entry(queue, current_row) \
+                or step_queue(queue, None, "first")
         if entry is None:
             return dash.no_update
         _start(entry, sdk_state, device_id)

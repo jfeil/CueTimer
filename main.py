@@ -298,6 +298,31 @@ def apply_queue_order(order, queue):
 
 
 @app.callback(
+    Output("track-info", "children"),
+    Input("nowplaying", "data"),
+    State("queue-store", "data"),
+)
+def render_now_playing(nowplaying, queue):
+    """Show the selected song straight from nowplaying.
+
+    Driven by the pointer (not the SDK), so it updates the instant
+    next/prev move the selection even when no audio is playing yet.
+    """
+    entry = find_entry(queue, (nowplaying or {}).get("rowId"))
+    if entry is None:
+        return html.Span("Kein Titel ausgewählt.", className="text-muted")
+    cover = html.Img(src=entry["img"], height="64px",
+                     className="me-2 rounded") if entry.get("img") else None
+    return dbc.Stack([
+        cover,
+        html.Div([
+            html.Div(entry["name"], className="fw-bold"),
+            html.Small(entry["artist"], className="text-muted"),
+        ]),
+    ], direction="horizontal", gap=2)
+
+
+@app.callback(
     Output("queue-store", "data", allow_duplicate=True),
     Input({"type": "queue-remove", "row": dash.ALL}, "n_clicks"),
     State("queue-store", "data"),
@@ -534,15 +559,14 @@ def _audio_playing(sdk_state):
 
 
 def _start(entry, sdk_state, device_id):
-    """Play an entry. If Spotify already has this exact track loaded we
-    resume it (continues from wherever it sat, 0s or 20s — the player
-    keeps that, we don't); otherwise we start it fresh."""
+    """Best-effort play of an entry. If Spotify already has this exact
+    track loaded we resume it (the player keeps the position, 0s or
+    20s); otherwise we start it fresh. Playback is a side effect — the
+    caller updates the selection regardless of whether it lands."""
     if sdk_state and sdk_state.get("uri") == entry["uri"]:
         control_player("resume", device_id)
-        return _np(entry)
-    if control_player("play_uri", device_id, entry["uri"]):
-        return _np(entry)
-    return dash.no_update
+    else:
+        control_player("play_uri", device_id, entry["uri"])
 
 
 @app.callback(
@@ -578,8 +602,10 @@ def playback_controls(_play_c, _pause_c, _next_c, _prev_c, row_clicks,
     if trigger == "play-btn":
         entry = find_entry(queue, current_row) or step_queue(queue, None,
                                                              "first")
-        return _start(entry, sdk_state, device_id) if entry \
-            else dash.no_update
+        if entry is None:
+            return dash.no_update
+        _start(entry, sdk_state, device_id)
+        return _np(entry)
 
     if trigger == "next-btn":
         target = step_queue(queue, current_row, "next")
@@ -593,9 +619,13 @@ def playback_controls(_play_c, _pause_c, _next_c, _prev_c, row_clicks,
     if target is None:
         return dash.no_update
 
-    if trigger in ("next-btn", "prev-btn") and not _audio_playing(sdk_state):
-        return _np(target)               # move the pointer, no audio
-    return _start(target, sdk_state, device_id)
+    # The selection always moves; audio only follows when something is
+    # already playing (next/prev) or it was an explicit queue play.
+    if trigger != "next-btn" and trigger != "prev-btn":
+        _start(target, sdk_state, device_id)            # queue ▶
+    elif _audio_playing(sdk_state):
+        _start(target, sdk_state, device_id)
+    return _np(target)
 
 
 @app.callback(
@@ -614,7 +644,8 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
     target = step_queue(queue, current_row, "next")
     if target is None:
         return dash.no_update
-    return _start(target, sdk_state, device_id)
+    _start(target, sdk_state, device_id)
+    return _np(target)
 
 
 @app.callback(
@@ -644,8 +675,10 @@ def apply_music_command(cmd, queue, device_id, nowplaying, sdk_state):
 
     if action == "play":
         entry = entry or step_queue(queue, None, "first")
-        return _start(entry, sdk_state, device_id) if entry \
-            else dash.no_update
+        if entry is None:
+            return dash.no_update
+        _start(entry, sdk_state, device_id)
+        return _np(entry)
 
     return dash.no_update
 

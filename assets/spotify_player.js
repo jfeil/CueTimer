@@ -80,20 +80,6 @@ window.addEventListener("message", (event) => {
     }
 });
 
-// Render the currently playing track into the track-info panel.
-function renderTrackInfo(track) {
-    const div = document.getElementById("track-info");
-    if (!div) return;
-    if (!track) {
-        div.innerHTML = "";
-        return;
-    }
-    const artists = track.artists.map(a => a.name).join(", ");
-    const cover = track.album.images.length ? track.album.images[0].url : "";
-    div.innerHTML = `<strong>${track.name}</strong> by ${artists}<br/>` +
-        (cover ? `<img src="${cover}" width="100"/>` : "");
-}
-
 // Translate the SDK state into the flat shape the server consumes,
 // inferring track-end (paused at position 0 on the track we were playing)
 // since the SDK has no explicit "ended" event.
@@ -121,10 +107,7 @@ function deriveSpotifyPlaystate(state) {
 // meaningful change, so no polling loop is needed.
 function bindPlayerStateListener() {
     player.addListener("player_state_changed", state => {
-        const playstate = deriveSpotifyPlaystate(state);
-        window._spotify_playstate = playstate;
-        renderTrackInfo(state && state.track_window
-            ? state.track_window.current_track : null);
+        window._spotify_playstate = deriveSpotifyPlaystate(state);
     });
 }
 

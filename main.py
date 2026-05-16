@@ -27,6 +27,20 @@ oauth = SpotifyOAuth(client_id=CLIENT_ID,
                      redirect_uri=REDIRECT_URI,
                      scope=SCOPE)
 
+
+def get_spotify():
+    """Return an authed spotipy client, or None if not yet authenticated.
+
+    Reads the token from spotipy's cache and refreshes it transparently;
+    a single operator drives one player, so the shared cache is sufficient.
+    """
+    token_info = oauth.cache_handler.get_cached_token()
+    if not token_info:
+        return None
+    if oauth.is_token_expired(token_info):
+        token_info = oauth.refresh_access_token(token_info["refresh_token"])
+    return spotipy.Spotify(auth=token_info["access_token"])
+
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
                 external_scripts=["https://sdk.scdn.co/spotify-player.js"],
@@ -48,6 +62,7 @@ app.layout = dbc.Container([
     dcc.Store(id="data_memory", storage_type="memory", data={"running": False, "max_time": 0}),
     dcc.Store(id="timer_memory", storage_type="memory", data=default_time),
     dcc.Store(id="playback-command", data=None),
+    dcc.Store(id="device-id", storage_type="memory"),
     dcc.Store(id="data_persistent", storage_type="local"),
     html.Br(),
     dbc.Container([dbc.Progress(id="timer_progress", value=100, style={"height": "30px"})]),
@@ -87,6 +102,18 @@ app.clientside_callback(
     Input("interval", "n_intervals"),
     State("spotify-status", "data"),
     State("playback-command", "data")
+)
+
+app.clientside_callback(
+    """
+    function(n, current) {
+        const id = window._spotify_device_id || null;
+        return (id === current) ? window.dash_clientside.no_update : id;
+    }
+    """,
+    Output("device-id", "data"),
+    Input("interval", "n_intervals"),
+    State("device-id", "data"),
 )
 
 @app.callback(

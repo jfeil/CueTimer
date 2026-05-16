@@ -24,6 +24,7 @@ function initializePlayer(token) {
 
     player.addListener("not_ready", ({ device_id }) => {
         console.log("Device ID has gone offline", device_id);
+        window._spotify_device_id = null;
     });
 
     player.connect().then(success => {
@@ -75,6 +76,7 @@ const waitForButton = setInterval(() => {
 }, 300);
 
 window._spotify_status = null;
+window._spotify_device_id = null;
 window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
 
@@ -86,6 +88,7 @@ window.addEventListener("message", (event) => {
     if (event.data.type === "spotify-player-ready") {
         console.log("Dash notified: player ready", event.data.device_id);
         window._spotify_status = "player-ready";
+        window._spotify_device_id = event.data.device_id;
     }
 });
 

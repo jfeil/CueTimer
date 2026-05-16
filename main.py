@@ -948,8 +948,11 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
     music_event = None
 
     if trigger == "reset_button.n_clicks":
-        # Explicit reset: apply a new duration immediately, even mid-run.
+        # Explicit reset: stop and rewind to the set duration, even
+        # mid-run, so a changed value applies right away.
         timer_interval = max_time
+        data["running"] = False
+        label_button = "Start"
         music_event = "reset"
     elif trigger == "timer_data.value":
         # Editing the duration while idle previews it straight away; a

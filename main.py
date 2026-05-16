@@ -7,6 +7,7 @@ import spotipy
 from spotipy import SpotifyOAuth
 from flask import Flask, request, redirect, session
 import os
+import uuid
 
 from dotenv import load_dotenv
 
@@ -41,6 +42,23 @@ def get_spotify():
         token_info = oauth.refresh_access_token(token_info["refresh_token"])
     return spotipy.Spotify(auth=token_info["access_token"])
 
+
+def track_to_item(track):
+    """Normalize a Spotify track object into a queue entry.
+
+    rowId is a stable per-entry id so the same track can appear multiple
+    times and drag-reorder can track rows independently of track identity.
+    """
+    images = (track.get("album") or {}).get("images") or []
+    return {
+        "rowId": uuid.uuid4().hex,
+        "uri": track["uri"],
+        "name": track["name"],
+        "artist": ", ".join(a["name"] for a in track.get("artists", [])),
+        "img": images[-1]["url"] if images else None,
+        "duration_ms": track.get("duration_ms", 0),
+    }
+
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
                 external_scripts=["https://sdk.scdn.co/spotify-player.js"],
@@ -63,6 +81,7 @@ app.layout = dbc.Container([
     dcc.Store(id="timer_memory", storage_type="memory", data=default_time),
     dcc.Store(id="playback-command", data=None),
     dcc.Store(id="device-id", storage_type="memory"),
+    dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
     html.Br(),
     dbc.Container([dbc.Progress(id="timer_progress", value=100, style={"height": "30px"})]),
@@ -82,7 +101,15 @@ app.layout = dbc.Container([
         html.Div(id="player-status"),
     ]),
     html.Div(id="track-info"),
-    dbc.ListGroup(id="spotify-tracks")])
+    html.Hr(),
+    dbc.Container([
+        dbc.Stack([
+            html.H4("Warteschlange", className="me-auto"),
+            dbc.Button("Leeren", id="queue-clear", color="secondary",
+                       size="sm", outline=True),
+        ], direction="horizontal", gap=2),
+        dbc.ListGroup(id="spotify-tracks", className="mt-2"),
+    ])])
 ])
 
 app.clientside_callback(
@@ -115,6 +142,67 @@ app.clientside_callback(
     Input("interval", "n_intervals"),
     State("device-id", "data"),
 )
+
+
+def _fmt_duration(ms):
+    s = round(ms / 1000)
+    return f"{s // 60}:{s % 60:02d}"
+
+
+@app.callback(
+    Output("spotify-tracks", "children"),
+    Input("queue-store", "data"),
+)
+def render_queue(queue):
+    if not queue:
+        return dbc.ListGroupItem("Warteschlange ist leer.", color="dark")
+    items = []
+    for idx, t in enumerate(queue):
+        thumb = html.Img(src=t["img"], height="40px",
+                         className="me-2 rounded") if t.get("img") else None
+        items.append(dbc.ListGroupItem([
+            dbc.Stack([
+                html.Span(f"{idx + 1}.", className="text-muted me-2"),
+                thumb,
+                html.Div([
+                    html.Div(t["name"], className="fw-bold"),
+                    html.Small(t["artist"], className="text-muted"),
+                ], className="me-auto"),
+                html.Small(_fmt_duration(t["duration_ms"]),
+                           className="text-muted me-2"),
+                dbc.Button("▶", id={"type": "queue-play", "row": t["rowId"]},
+                           size="sm", color="success", outline=True,
+                           title="Jetzt abspielen"),
+                dbc.Button("✕", id={"type": "queue-remove", "row": t["rowId"]},
+                           size="sm", color="danger", outline=True,
+                           title="Entfernen"),
+            ], direction="horizontal", gap=2),
+        ], id={"type": "queue-row", "row": t["rowId"]}))
+    return items
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input({"type": "queue-remove", "row": dash.ALL}, "n_clicks"),
+    State("queue-store", "data"),
+    prevent_initial_call=True,
+)
+def remove_from_queue(_clicks, queue):
+    trig = dash.callback_context.triggered_id
+    if not trig or not any(_clicks):
+        return dash.no_update
+    return [t for t in (queue or []) if t["rowId"] != trig["row"]]
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input("queue-clear", "n_clicks"),
+    prevent_initial_call=True,
+)
+def clear_queue(n):
+    if not n:
+        return dash.no_update
+    return []
 
 @app.callback(
     Output("spotify-ts", "data"),

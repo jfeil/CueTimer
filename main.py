@@ -597,6 +597,24 @@ def _fetch_all_playlist_tracks(sp, playlist_id, cap=300):
     return tracks[:cap]
 
 
+def _playlist_error_message(exc, playlist_id):
+    """Turn a Spotify API error into something the operator can act on.
+
+    Spotify-owned algorithmic/editorial playlists (the 37i9dQZF1…
+    namespace: Daily Mix, Radio, Editorial) lost third-party Web API
+    access in Nov 2024 and now 404, which is otherwise baffling.
+    """
+    if getattr(exc, "http_status", None) == 404:
+        if (playlist_id or "").startswith("37i9dQZF1"):
+            return ("Spotify-eigene bzw. algorithmische Playlists "
+                    "(Daily Mix, Radio, Editorial) sind über die API "
+                    "nicht zugänglich. Bitte eine eigene Playlist "
+                    "verwenden (Songs ggf. in eigene Playlist kopieren).")
+        return ("Playlist nicht gefunden oder nicht zugänglich — "
+                "evtl. privat, gelöscht oder Spotify-eigen.")
+    return f"Playlist konnte nicht geladen werden: {exc}"
+
+
 @app.callback(
     Output("playlist-select", "options"),
     Output("playlist-status", "children", allow_duplicate=True),
@@ -672,7 +690,7 @@ def load_playlist_tracks(selected_id, _clicks, url):
     try:
         raw_tracks = _fetch_all_playlist_tracks(sp, playlist_id)
     except spotipy.SpotifyException as exc:
-        return [], [], [], f"Playlist konnte nicht geladen werden: {exc}"
+        return [], [], [], _playlist_error_message(exc, playlist_id)
 
     items = [track_to_item(t) for t in raw_tracks]
     value = [it["rowId"] for it in items]

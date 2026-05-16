@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img"
+     aria-label="Spotify Timer">
+  <rect width="64" height="64" rx="14" fill="#191414"/>
+  <!-- stopwatch top button + stem -->
+  <rect x="26" y="6" width="12" height="6" rx="2" fill="#1DB954"/>
+  <rect x="30" y="11" width="4" height="5" fill="#1DB954"/>
+  <!-- partial ring (timer) -->
+  <circle cx="32" cy="36" r="20" fill="none" stroke="#1DB954"
+          stroke-width="5" stroke-linecap="round"
+          stroke-dasharray="100 126" transform="rotate(-90 32 36)"/>
+  <!-- play triangle -->
+  <path d="M26 27 L44 36 L26 45 Z" fill="#1DB954"/>
+</svg>

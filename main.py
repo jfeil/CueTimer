@@ -84,6 +84,8 @@ def control_player(action, device_id, uri=None, position_ms=0):
 
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
+                title="Spotify Timer",
+                update_title=None,
                 external_scripts=[
                     "https://sdk.scdn.co/spotify-player.js",
                     "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js",
@@ -93,6 +95,21 @@ app = dash.Dash(__name__, server=server,
                 meta_tags=[
                     {"name": "viewport", "content": "width=device-width, initial-scale=1"}
                 ])
+
+# Use the bundled SVG favicon instead of Dash's default.
+app.index_string = """<!DOCTYPE html>
+<html>
+<head>
+{%metas%}
+<title>{%title%}</title>
+<link rel="icon" type="image/svg+xml" href="/assets/icon.svg">
+{%css%}
+</head>
+<body>
+{%app_entry%}
+<footer>{%config%}{%scripts%}{%renderer%}</footer>
+</body>
+</html>"""
 
 default_time = 200
 default_musik = 10

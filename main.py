@@ -8,7 +8,7 @@ import os
 
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue, set_start_ms,
-                          clamp_start_ms)
+                          clamp_start_ms, played_split)
 from timer_logic import next_music_state, progress_percent
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
@@ -360,12 +360,19 @@ def _fmt_duration(ms):
 @app.callback(
     Output("spotify-tracks", "children"),
     Input("queue-store", "data"),
+    Input("nowplaying", "data"),
 )
-def render_queue(queue):
-    if not queue:
-        return dbc.ListGroupItem("Warteschlange ist leer.", color="dark")
+def render_queue(queue, nowplaying):
+    """Show only what's still to come; the next title sits at spot 1.
+
+    Played/current entries stay in queue-store (so prev brings them
+    back) but are hidden here.
+    """
+    _played, upcoming = played_split(queue, (nowplaying or {}).get("rowId"))
+    if not upcoming:
+        return dbc.ListGroupItem("Keine weiteren Titel.", color="dark")
     items = []
-    for idx, t in enumerate(queue):
+    for idx, t in enumerate(upcoming):
         thumb = html.Img(src=t["img"], height="44px",
                          className="rounded") if t.get("img") else None
         items.append(dbc.ListGroupItem([
@@ -449,13 +456,20 @@ app.clientside_callback(
     Output("queue-store", "data", allow_duplicate=True),
     Input("queue-order", "data"),
     State("queue-store", "data"),
+    State("nowplaying", "data"),
     prevent_initial_call=True,
 )
-def apply_queue_order(order, queue):
-    """Rearrange the queue to match an order produced by a drag."""
+def apply_queue_order(order, queue, nowplaying):
+    """Reorder only the upcoming part; played entries stay put.
+
+    The drag list only contains the visible (upcoming) rows, so the
+    hidden played/current prefix is preserved ahead of the reordered
+    tail.
+    """
     if not order or not order.get("ids"):
         return dash.no_update
-    return reorder_queue(queue, order["ids"])
+    played, upcoming = played_split(queue, (nowplaying or {}).get("rowId"))
+    return played + reorder_queue(upcoming, order["ids"])
 
 
 @app.callback(

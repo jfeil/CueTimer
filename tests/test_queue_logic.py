@@ -5,7 +5,7 @@ These exercise queue_logic in isolation: no Dash, no Spotify, no env.
 
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue,
-                          clamp_start_ms, set_start_ms)
+                          clamp_start_ms, set_start_ms, played_split)
 
 
 def make_queue(*names):
@@ -145,6 +145,31 @@ def test_reorder_empty_order_keeps_queue():
     queue = make_queue("a", "b")
     assert reorder_queue(queue, []) == queue
     assert reorder_queue(queue, None) == queue
+
+
+# --- played_split --------------------------------------------------------
+
+def test_played_split_hides_up_to_and_including_current():
+    queue = make_queue("a", "b", "c", "d")
+    played, upcoming = played_split(queue, "b")
+    assert [e["rowId"] for e in played] == ["a", "b"]
+    assert [e["rowId"] for e in upcoming] == ["c", "d"]
+
+
+def test_played_split_none_means_all_upcoming():
+    queue = make_queue("a", "b")
+    played, upcoming = played_split(queue, None)
+    assert played == []
+    assert [e["rowId"] for e in upcoming] == ["a", "b"]
+
+
+def test_played_split_unknown_row_means_all_upcoming():
+    queue = make_queue("a", "b")
+    assert played_split(queue, "ghost") == ([], queue)
+
+
+def test_played_split_empty_queue():
+    assert played_split([], "a") == ([], [])
 
 
 # --- step_queue ----------------------------------------------------------

@@ -80,6 +80,24 @@ def reorder_queue(queue, ordered_row_ids):
     return named + rest
 
 
+def played_split(queue, row_id):
+    """Split the queue into (played, upcoming) around the current song.
+
+    Everything up to and including row_id counts as played/current and
+    is hidden; the rest is what's still to come, with the next title
+    first. When nothing is selected yet (row_id is None) or it is no
+    longer in the queue, nothing is played and the whole queue is
+    upcoming.
+    """
+    queue = list(queue or [])
+    if row_id is None:
+        return [], queue
+    for idx, entry in enumerate(queue):
+        if entry["rowId"] == row_id:
+            return queue[:idx + 1], queue[idx + 1:]
+    return [], queue
+
+
 def find_entry(queue, row_id):
     """Return the queue entry with the given rowId, or None."""
     for entry in queue or []:

@@ -125,7 +125,15 @@ app.layout = dbc.Container([
     dbc.Container([
     html.Div(id="main", children=[
         dbc.Button("Connect to Spotify", id="connect-button"),
+        html.H4(id="player-state-heading"),
         html.Div(id="player-status"),
+        html.Div([
+            dbc.Button("⏮️", id="prev-btn"),
+            dbc.Button("▶️", id="play-btn"),
+            dbc.Button("⏸️", id="pause-btn"),
+            dbc.Button("⏭️", id="next-btn"),
+        ], id="player-controls", style={"marginTop": "1rem",
+                                        "display": "none"}),
     ]),
     html.Div(id="track-info"),
     html.Hr(),
@@ -485,35 +493,33 @@ def add_playlist_tracks(_sel_clicks, _all_clicks, selected_ids,
 
 @app.callback(
     Output("spotify-ts", "data"),
-    Output("main", "children"),
+    Output("connect-button", "style"),
+    Output("player-state-heading", "children"),
+    Output("player-status", "children"),
+    Output("player-controls", "style"),
     State("spotify-ts", "data"),
-    Input("spotify-status", "data")
+    Input("spotify-status", "data"),
 )
 def update_main_layout(ts, status):
+    """Reflect the auth/player state without rebuilding the DOM.
+
+    Every control keeps a stable id in the layout; this only toggles
+    visibility and status text, so callbacks that target the transport
+    buttons always resolve.
+    """
     if ts and ts >= status["ts"]:
-        return ts, dash.no_update
+        return ts, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    shown = {"marginTop": "1rem"}
+    hidden = {"display": "none"}
+
     if status["state"] == "authenticated":
-        return status["ts"], html.Div([
-            html.H4("✅ Authenticated with Spotify"),
-            html.Div(id="player-status", children="Waiting for player to be ready..."),
-        ])
-    elif status["state"] == "player-ready":
-        return status["ts"], html.Div([
-            html.H4("🎵 Spotify Web Player Connected"),
-            html.Div(id="player-status", children="Player is ready"),
-            html.Div(id="track-info", children="No track playing yet."),
-            html.Div([
-                dbc.Button("⏮️", id="prev-btn"),
-                dbc.Button("▶️", id="play-btn"),
-                dbc.Button("⏸️", id="pause-btn"),
-                dbc.Button("⏭️", id="next-btn"),
-            ], style={"marginTop": "1rem"})
-        ])
-    else:
-        return status["ts"], html.Div([
-            dbc.Button("Connect to Spotify", id="connect-button"),
-            html.Div(id="player-status")
-        ])
+        return (status["ts"], hidden, "✅ Authenticated with Spotify",
+                "Warte auf den Player…", hidden)
+    if status["state"] == "player-ready":
+        return (status["ts"], hidden, "🎵 Spotify Web Player verbunden",
+                "Player ist bereit", shown)
+    return status["ts"], {}, "", "", hidden
 
 @app.callback(
     Output("nowplaying", "data", allow_duplicate=True),

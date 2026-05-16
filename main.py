@@ -118,7 +118,7 @@ app.layout = dbc.Container([
               data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
-    html.H1("Fussball Timer", className="text-center my-4"),
+    html.H1("Spotify Timer", className="text-center my-4"),
 
     dbc.Card([
         dbc.CardHeader("Spiel-Timer"),
@@ -991,6 +991,13 @@ def callback():
     """
 
 
+def _start_button_label(running):
+    """Icon + text for the Start/Stop toggle, mirroring its state."""
+    if running:
+        return [html.I(className="bi bi-pause-fill me-2"), "Stop"]
+    return [html.I(className="bi bi-play-fill me-2"), "Start"]
+
+
 @app.callback(Output("data_memory", "data"),
               Output("start_button", "children"),
               Output("timer_memory", "data"),
@@ -999,16 +1006,14 @@ def callback():
               State("data_memory", "data"),
               Input("timer_data", "value"),
               State("timer_memory", "data"),
-              State("start_button", "children"),
               State("musik_start", "value"),
               Input("start_button", "n_clicks"),
               Input("reset_button", "n_clicks"),
               Input("interval", "n_intervals"))
-def update_timer(data, max_time, current_timer, button_label, music_start,
+def update_timer(data, max_time, current_timer, music_start,
                  _start_clicks, _reset_clicks, n_intervals):
     max_time = max_time or 0
     timer_interval = current_timer
-    label_button = button_label
     trigger = dash.callback_context.triggered[0]["prop_id"]
     music_event = None
 
@@ -1017,7 +1022,6 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
         # mid-run, so a changed value applies right away.
         timer_interval = max_time
         data["running"] = False
-        label_button = "Start"
         music_event = "reset"
     elif trigger == "timer_data.value":
         # Editing the duration while idle previews it straight away; a
@@ -1025,17 +1029,17 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
         if not data["running"]:
             timer_interval = max_time
     elif trigger == "start_button.n_clicks":
-        if button_label == "Start":
+        # Toggle off the actual running state, not the button text
+        # (which now carries an icon and is not a bare string).
+        if not data["running"]:
             if timer_interval <= 0:
                 timer_interval = max_time
             data["running"] = True
-            label_button = "Stop"
             music_event = "start_match"
         else:
             # Stop ends the attempt and rewinds to the set duration so
             # the next Start is ready and it is visible right away.
             data["running"] = False
-            label_button = "Start"
             timer_interval = max_time
             music_event = "reset"
     elif trigger == "interval.n_intervals" and data["running"]:
@@ -1052,7 +1056,8 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
     music_command = ({"command": command, "ts": n_intervals or 0}
                      if command else dash.no_update)
 
-    return data, label_button, timer_interval, timer_interval, music_command
+    return (data, _start_button_label(data["running"]), timer_interval,
+            timer_interval, music_command)
 
 
 @app.callback(

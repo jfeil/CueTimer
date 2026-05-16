@@ -5,8 +5,10 @@ from timer_logic import next_music_state
 
 # --- start_match ---------------------------------------------------------
 
-def test_start_match_from_idle_does_nothing():
-    assert next_music_state("idle", 200, 10, "start_match") == ("idle", None)
+def test_start_match_always_silences_even_from_idle():
+    # Manual playback never sets the phase, so a match start must pause
+    # regardless of the phase the machine believes it is in.
+    assert next_music_state("idle", 200, 10, "start_match") == ("idle", "pause")
 
 
 def test_start_match_during_playing_pauses():

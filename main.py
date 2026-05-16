@@ -107,8 +107,7 @@ app.layout = dbc.Container([
     dbc.Container([dbc.ButtonGroup([
         dbc.Button("Reset", id="reset_button", color="danger"),
         dbc.Button("Start", id="start_button", color="success"),
-    ]),
-    dbc.Label(id="Musik")]),
+    ])]),
     html.Br(),
     dbc.Container([
     html.Div(id="main", children=[
@@ -521,16 +520,6 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
     Input("timer_memory", "data"))
 def update_progressbar(data, current_timer):
     return current_timer / data["max_time"] * 100
-
-@app.callback(
-    Output("Musik", "children"),
-    State("musik_start", "value"),
-    Input("timer_memory", "data"))
-def update_musik(musik_start, current_timer):
-    if musik_start >= current_timer:
-        return "MUSIK LÄUFT! :)"
-    else:
-        return ""
 
 
 if __name__ == '__main__':

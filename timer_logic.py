@@ -32,11 +32,11 @@ def next_music_state(phase, timer, music_start, event):
     remaining time is at or below it).
     """
     if event == "start_match":
-        # A fresh match begins: if music was carrying over from the
-        # previous match's break, stop it now.
-        if phase in ("playing", "break"):
-            return "idle", "pause"
-        return "idle", None
+        # A fresh match begins: silence the player unconditionally.
+        # Manual playback never updates the phase, so a phase check
+        # would miss music the operator started by hand; an extra
+        # pause when nothing plays is harmless.
+        return "idle", "pause"
 
     if event == "reset":
         # Reset only rewinds the clock; leave manual playback alone.

@@ -103,12 +103,22 @@ function deriveSpotifyPlaystate(state) {
     };
 }
 
-// Single source of player updates: the SDK pushes a state on every
-// meaningful change, so no polling loop is needed.
+// Keep the playstate fresh from two sources: the event (snappy, fires
+// on play/pause/seek/track change) and a 1s poll of getCurrentState
+// (authoritative position). The poll matters because playback is
+// driven server-side — when we start a track at an offset or switch
+// songs while one is running, the event can be stale or skipped, so
+// without it the bar would keep the previous song's position.
 function bindPlayerStateListener() {
     player.addListener("player_state_changed", state => {
         window._spotify_playstate = deriveSpotifyPlaystate(state);
     });
+    setInterval(() => {
+        player.getCurrentState().then(state => {
+            const s = deriveSpotifyPlaystate(state);
+            if (s) window._spotify_playstate = s;
+        });
+    }, 1000);
 }
 
 // Read the queue's DOM order back into the rowId list the server

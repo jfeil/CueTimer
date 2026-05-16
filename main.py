@@ -7,6 +7,7 @@ from flask import Flask, request, redirect, session
 import os
 
 from queue_logic import track_to_item, find_entry, step_queue
+from timer_logic import next_music_state
 
 from dotenv import load_dotenv
 
@@ -87,10 +88,12 @@ app.layout = dbc.Container([
     dcc.Interval(id="interval", interval=1000),
     dcc.Store(id="spotify-status"),
     dcc.Store(id="spotify-ts"),
-    dcc.Store(id="data_memory", storage_type="memory", data={"running": False, "max_time": 0}),
+    dcc.Store(id="data_memory", storage_type="memory",
+              data={"running": False, "max_time": 0, "music_phase": "idle"}),
     dcc.Store(id="timer_memory", storage_type="memory", data=default_time),
     dcc.Store(id="device-id", storage_type="memory"),
     dcc.Store(id="sdk-state", storage_type="memory"),
+    dcc.Store(id="music-command", storage_type="memory"),
     dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
@@ -333,6 +336,41 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
         return {"rowId": target["rowId"], "uri": target["uri"]}
     return dash.no_update
 
+
+@app.callback(
+    Output("nowplaying", "data", allow_duplicate=True),
+    Input("music-command", "data"),
+    State("queue-store", "data"),
+    State("device-id", "data"),
+    State("nowplaying", "data"),
+    prevent_initial_call=True,
+)
+def apply_music_command(cmd, queue, device_id, nowplaying):
+    """Execute the timer's music intent against the player.
+
+    "pause" stops playback but keeps now-playing intact so a later
+    resume continues where the break left off. "play" resumes the
+    current entry if there is one, otherwise starts the queue.
+    """
+    if not cmd:
+        return dash.no_update
+    action = cmd.get("command")
+
+    if action == "pause":
+        control_player("pause", device_id)
+        return dash.no_update
+
+    if action == "play":
+        current_row = (nowplaying or {}).get("rowId")
+        if current_row and find_entry(queue, current_row):
+            control_player("resume", device_id)
+            return dash.no_update
+        target = step_queue(queue, None, "first")
+        if target and control_player("play_uri", device_id, target["uri"]):
+            return {"rowId": target["rowId"], "uri": target["uri"]}
+
+    return dash.no_update
+
 # Flask route for /login
 @server.route("/login")
 def login():
@@ -359,32 +397,49 @@ def callback():
               Output("start_button", "children"),
               Output("timer_memory", "data"),
               Output("timer_progress", "label"),
+              Output("music-command", "data"),
               State("data_memory", "data"),
               State("timer_data", "value"),
               State("timer_memory", "data"),
               State("start_button", "children"),
+              State("musik_start", "value"),
               Input("start_button", "n_clicks"),
               Input("reset_button", "n_clicks"),
               Input("interval", "n_intervals"))
-def update_timer(data, max_time, current_timer, button_label, *_):
+def update_timer(data, max_time, current_timer, button_label, music_start,
+                 _start_clicks, _reset_clicks, n_intervals):
     timer_interval = current_timer
     label_button = button_label
-    if dash.callback_context.triggered[0]["prop_id"] == "reset_button.n_clicks":
+    trigger = dash.callback_context.triggered[0]["prop_id"]
+    music_event = None
+
+    if trigger == "reset_button.n_clicks":
         timer_interval = max_time
-    elif dash.callback_context.triggered[0]["prop_id"] == "start_button.n_clicks":
+        music_event = "reset"
+    elif trigger == "start_button.n_clicks":
         if button_label == "Start":
             if timer_interval <= 0:
                 timer_interval = max_time
             data["running"] = True
             label_button = "Stop"
+            music_event = "start_match"
         else:
             data["running"] = False
             label_button = "Start"
-    elif dash.callback_context.triggered[0]["prop_id"] == "interval.n_intervals" and data["running"]:
+    elif trigger == "interval.n_intervals" and data["running"]:
         timer_interval -= 1
+        music_event = "tick"
+
     data["max_time"] = max_time
 
-    return data, label_button, timer_interval, timer_interval
+    phase = data.get("music_phase", "idle")
+    new_phase, command = next_music_state(phase, timer_interval,
+                                          music_start, music_event)
+    data["music_phase"] = new_phase
+    music_command = ({"command": command, "ts": n_intervals or 0}
+                     if command else dash.no_update)
+
+    return data, label_button, timer_interval, timer_interval, music_command
 
 
 @app.callback(

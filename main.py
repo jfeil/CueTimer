@@ -299,27 +299,47 @@ app.clientside_callback(
     State("device-id", "data"),
 )
 
-# Smooth playback position: the SDK only emits on play/pause/seek/track
-# change, so between events we interpolate from the last reported
-# position plus elapsed wall-clock (only while not paused). The same
-# value is mirrored into position-sync so the seek callback can tell a
-# user drag apart from this once-a-second programmatic update.
+# Player position. While the selected song is the one Spotify has
+# loaded we interpolate the SDK position (it only emits on play/pause/
+# seek/track change, so between events we add elapsed wall-clock). When
+# the song is only armed (skipped to, not yet playing) we instead
+# preview its configured start offset, so the player bar matches where
+# playback will begin. position-sync mirrors the shown value so the
+# seek callback can tell a real drag from this programmatic update.
 app.clientside_callback(
     """
-    function(n) {
-        const s = window._spotify_playstate;
-        if (!s) return [window.dash_clientside.no_update,
-                         window.dash_clientside.no_update,
-                         window.dash_clientside.no_update,
-                         window.dash_clientside.no_update];
-        const elapsed = s.paused ? 0 : (Date.now() - s.ts);
-        const pos = Math.max(0, Math.min(s.duration, s.position + elapsed));
+    function(n, nowplaying, queue) {
         const fmt = ms => {
-            const t = Math.round(ms / 1000);
+            const t = Math.round((ms || 0) / 1000);
             return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
         };
-        return [Math.max(1, s.duration), pos,
-                fmt(pos) + " / " + fmt(s.duration), pos];
+        const s = window._spotify_playstate;
+        const rowId = nowplaying && nowplaying.rowId;
+        let entry = null;
+        if (rowId && queue) {
+            entry = queue.find(e => e.rowId === rowId) || null;
+        }
+
+        if (s && entry && s.uri === entry.uri) {
+            const elapsed = s.paused ? 0 : (Date.now() - s.ts);
+            const pos = Math.max(0, Math.min(s.duration,
+                                            s.position + elapsed));
+            return [Math.max(1, s.duration), pos,
+                    fmt(pos) + " / " + fmt(s.duration), pos];
+        }
+        if (entry) {
+            const start = entry.start_ms || 0;
+            const dur = Math.max(1, entry.duration_ms || 1);
+            return [dur, start, fmt(start) + " / " + fmt(dur), start];
+        }
+        if (s) {
+            const elapsed = s.paused ? 0 : (Date.now() - s.ts);
+            const pos = Math.max(0, Math.min(s.duration,
+                                            s.position + elapsed));
+            return [Math.max(1, s.duration), pos,
+                    fmt(pos) + " / " + fmt(s.duration), pos];
+        }
+        return [1, 0, "0:00 / 0:00", 0];
     }
     """,
     Output("position-slider", "max"),
@@ -327,6 +347,8 @@ app.clientside_callback(
     Output("position-label", "children"),
     Output("position-sync", "data"),
     Input("interval", "n_intervals"),
+    Input("nowplaying", "data"),
+    State("queue-store", "data"),
 )
 
 

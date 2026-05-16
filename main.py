@@ -109,7 +109,7 @@ app.layout = dbc.Container([
     dcc.Store(id="queue-order", storage_type="memory"),
     dcc.Store(id="sortable-init", storage_type="memory"),
     dcc.Store(id="nowplaying", storage_type="memory",
-              data={"rowId": None, "uri": None, "playing": False}),
+              data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
     html.Br(),
@@ -522,18 +522,27 @@ def update_main_layout(ts, status):
                 "Player ist bereit", shown)
     return status["ts"], {}, "", "", hidden
 
-def _np(entry, playing):
-    """Build a now-playing record. playing=False means the entry is
-    only armed (pre-selected) and no audio is running for it yet."""
-    return {"rowId": entry["rowId"], "uri": entry["uri"], "playing": playing}
+def _np(entry):
+    """Build a now-playing record (the current song pointer)."""
+    return {"rowId": entry["rowId"], "uri": entry["uri"]}
 
 
-def _is_preselecting(data):
-    """True while a match is running but the music window has not yet
-    opened. Transport next/prev then only arms the upcoming song so the
-    operator can stage it without interrupting play."""
-    return bool(data and data.get("running")
-                and data.get("music_phase", "idle") == "idle")
+def _audio_playing(sdk_state):
+    """True when Spotify currently has audio running."""
+    return bool(sdk_state and sdk_state.get("uri")
+                and not sdk_state.get("paused"))
+
+
+def _start(entry, sdk_state, device_id):
+    """Play an entry. If Spotify already has this exact track loaded we
+    resume it (continues from wherever it sat, 0s or 20s — the player
+    keeps that, we don't); otherwise we start it fresh."""
+    if sdk_state and sdk_state.get("uri") == entry["uri"]:
+        control_player("resume", device_id)
+        return _np(entry)
+    if control_player("play_uri", device_id, entry["uri"]):
+        return _np(entry)
+    return dash.no_update
 
 
 @app.callback(
@@ -546,59 +555,47 @@ def _is_preselecting(data):
     State("queue-store", "data"),
     State("device-id", "data"),
     State("nowplaying", "data"),
-    State("data_memory", "data"),
+    State("sdk-state", "data"),
     prevent_initial_call=True,
 )
-def playback_controls(_play, _pause, _next, _prev, row_clicks,
-                      queue, device_id, nowplaying, data):
+def playback_controls(_play_c, _pause_c, _next_c, _prev_c, row_clicks,
+                      queue, device_id, nowplaying, sdk_state):
     """Translate transport buttons into a single playback intent.
 
-    next/prev normally play immediately, but while a match is running
-    and the music window has not opened yet they only arm the upcoming
-    song (no audio), so the operator can pre-set what plays once the
-    timer reaches "Musik ab".
+    next/prev play the new song only when audio is currently playing;
+    otherwise they just move the pointer (no audio) so the operator can
+    pre-set what plays next.
     """
     trigger = dash.callback_context.triggered_id
     if trigger is None:
         return dash.no_update
-    nowplaying = nowplaying or {}
-    current_row = nowplaying.get("rowId")
+    current_row = (nowplaying or {}).get("rowId")
 
     if trigger == "pause-btn":
         control_player("pause", device_id)
         return dash.no_update
 
     if trigger == "play-btn":
-        entry = find_entry(queue, current_row)
-        if entry is not None:
-            if nowplaying.get("playing"):
-                control_player("resume", device_id)
-                return dash.no_update
-            if control_player("play_uri", device_id, entry["uri"]):
-                return _np(entry, True)
-            return dash.no_update
-        target = step_queue(queue, None, "first")
-    elif trigger == "next-btn":
+        entry = find_entry(queue, current_row) or step_queue(queue, None,
+                                                             "first")
+        return _start(entry, sdk_state, device_id) if entry \
+            else dash.no_update
+
+    if trigger == "next-btn":
         target = step_queue(queue, current_row, "next")
     elif trigger == "prev-btn":
         target = step_queue(queue, current_row, "prev")
     elif isinstance(trigger, dict) and trigger.get("type") == "queue-play":
-        if not any(row_clicks):
-            return dash.no_update
-        target = find_entry(queue, trigger["row"])
+        target = find_entry(queue, trigger["row"]) if any(row_clicks) else None
     else:
         return dash.no_update
 
     if target is None:
         return dash.no_update
 
-    if trigger in ("next-btn", "prev-btn") and _is_preselecting(data):
-        # Arm only: move the pointer, leave playback untouched.
-        return _np(target, False)
-
-    if control_player("play_uri", device_id, target["uri"]):
-        return _np(target, True)
-    return dash.no_update
+    if trigger in ("next-btn", "prev-btn") and not _audio_playing(sdk_state):
+        return _np(target)               # move the pointer, no audio
+    return _start(target, sdk_state, device_id)
 
 
 @app.callback(
@@ -617,9 +614,7 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
     target = step_queue(queue, current_row, "next")
     if target is None:
         return dash.no_update
-    if control_player("play_uri", device_id, target["uri"]):
-        return _np(target, True)
-    return dash.no_update
+    return _start(target, sdk_state, device_id)
 
 
 @app.callback(
@@ -628,37 +623,29 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
     State("queue-store", "data"),
     State("device-id", "data"),
     State("nowplaying", "data"),
+    State("sdk-state", "data"),
     prevent_initial_call=True,
 )
-def apply_music_command(cmd, queue, device_id, nowplaying):
+def apply_music_command(cmd, queue, device_id, nowplaying, sdk_state):
     """Execute the timer's music intent against the player.
 
-    "pause" stops playback but keeps now-playing intact. "play" starts
-    the armed (pre-selected) entry from the top; if the entry was
-    already playing before a break it resumes instead of restarting;
-    with nothing selected it starts the queue.
+    "pause" stops playback. "play" starts the selected song (resuming
+    it if Spotify already has it loaded), or the first queue entry when
+    nothing is selected.
     """
     if not cmd:
         return dash.no_update
     action = cmd.get("command")
+    entry = find_entry(queue, (nowplaying or {}).get("rowId"))
 
     if action == "pause":
         control_player("pause", device_id)
         return dash.no_update
 
     if action == "play":
-        nowplaying = nowplaying or {}
-        entry = find_entry(queue, nowplaying.get("rowId"))
-        if entry is not None:
-            if nowplaying.get("playing"):
-                control_player("resume", device_id)
-                return dash.no_update
-            if control_player("play_uri", device_id, entry["uri"]):
-                return _np(entry, True)
-            return dash.no_update
-        target = step_queue(queue, None, "first")
-        if target and control_player("play_uri", device_id, target["uri"]):
-            return _np(target, True)
+        entry = entry or step_queue(queue, None, "first")
+        return _start(entry, sdk_state, device_id) if entry \
+            else dash.no_update
 
     return dash.no_update
 

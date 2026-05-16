@@ -8,6 +8,7 @@ import os
 
 from queue_logic import track_to_item, find_entry, step_queue, with_new_row_id
 from timer_logic import next_music_state
+from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
 from dotenv import load_dotenv
 
@@ -17,7 +18,8 @@ load_dotenv()
 CLIENT_ID = os.environ["SPOTIFY_CLIENT_ID"]
 CLIENT_SECRET = os.environ["SPOTIFY_CLIENT_SECRET"]
 REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8050/callback")
-SCOPE = "streaming,user-read-email,user-read-private,user-library-read"
+SCOPE = ("streaming,user-read-email,user-read-private,"
+         "user-library-read,playlist-read-private")
 
 server = Flask(__name__)
 server.secret_key = os.urandom(24)
@@ -95,6 +97,7 @@ app.layout = dbc.Container([
     dcc.Store(id="sdk-state", storage_type="memory"),
     dcc.Store(id="music-command", storage_type="memory"),
     dcc.Store(id="search-store", storage_type="memory", data=[]),
+    dcc.Store(id="playlist-tracks-store", storage_type="memory", data=[]),
     dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
@@ -124,6 +127,29 @@ app.layout = dbc.Container([
             dbc.Button("Suchen", id="search-btn", color="primary"),
         ]),
         dbc.ListGroup(id="search-results", className="mt-2"),
+    ]),
+    html.Hr(),
+    dbc.Container([
+        html.H4("Playlist hinzufügen"),
+        dbc.InputGroup([
+            dbc.Select(id="playlist-select", placeholder="Eigene Playlist…"),
+            dbc.Button("Playlists laden", id="load-playlists-btn",
+                       color="secondary", outline=True),
+        ], className="mb-2"),
+        dbc.InputGroup([
+            dbc.Input(id="playlist-url",
+                      placeholder="…oder Playlist-Link / URI einfügen"),
+            dbc.Button("Laden", id="playlist-load-btn", color="primary"),
+        ]),
+        html.Div(id="playlist-status", className="mt-2 text-muted"),
+        dbc.Checklist(id="playlist-track-checklist", options=[], value=[],
+                      className="mt-2"),
+        dbc.ButtonGroup([
+            dbc.Button("Auswahl hinzufügen", id="playlist-add-sel-btn",
+                       color="success", outline=True),
+            dbc.Button("Alle hinzufügen", id="playlist-add-all-btn",
+                       color="success"),
+        ], className="mt-2"),
     ]),
     html.Hr(),
     dbc.Container([
@@ -303,6 +329,101 @@ def add_search_result(_clicks, results, queue):
     if idx >= len(results or []):
         return dash.no_update
     return (queue or []) + [with_new_row_id(results[idx])]
+
+
+def _fetch_all_playlist_tracks(sp, playlist_id, cap=300):
+    """Page through a playlist and return its playable track objects.
+
+    Capped so a pathologically large playlist cannot stall the UI.
+    """
+    page = sp.playlist_items(playlist_id, limit=100)
+    tracks = extract_playlist_tracks(page["items"])
+    while page.get("next") and len(tracks) < cap:
+        page = sp.next(page)
+        tracks.extend(extract_playlist_tracks(page["items"]))
+    return tracks[:cap]
+
+
+@app.callback(
+    Output("playlist-select", "options"),
+    Output("playlist-status", "children", allow_duplicate=True),
+    Input("load-playlists-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def load_user_playlists(_clicks):
+    sp = get_spotify()
+    if sp is None:
+        return [], "Bitte zuerst mit Spotify verbinden."
+    try:
+        playlists = sp.current_user_playlists(limit=50)["items"]
+    except spotipy.SpotifyException as exc:
+        return [], f"Playlists konnten nicht geladen werden: {exc}"
+    options = [{"label": p["name"], "value": p["id"]}
+               for p in playlists if p]
+    return options, f"{len(options)} Playlists geladen."
+
+
+@app.callback(
+    Output("playlist-tracks-store", "data"),
+    Output("playlist-track-checklist", "options"),
+    Output("playlist-track-checklist", "value"),
+    Output("playlist-status", "children", allow_duplicate=True),
+    Input("playlist-select", "value"),
+    Input("playlist-load-btn", "n_clicks"),
+    State("playlist-url", "value"),
+    prevent_initial_call=True,
+)
+def load_playlist_tracks(selected_id, _clicks, url):
+    trigger = dash.callback_context.triggered_id
+    if trigger == "playlist-load-btn":
+        playlist_id = parse_playlist_id(url)
+        if not playlist_id:
+            return [], [], [], "Kein gültiger Playlist-Link."
+    else:
+        playlist_id = selected_id
+    if not playlist_id:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+    sp = get_spotify()
+    if sp is None:
+        return [], [], [], "Bitte zuerst mit Spotify verbinden."
+    try:
+        raw_tracks = _fetch_all_playlist_tracks(sp, playlist_id)
+    except spotipy.SpotifyException as exc:
+        return [], [], [], f"Playlist konnte nicht geladen werden: {exc}"
+
+    items = [track_to_item(t) for t in raw_tracks]
+    options = [{"label": f"{it['name']} — {it['artist']}",
+                "value": it["rowId"]} for it in items]
+    value = [it["rowId"] for it in items]
+    status = (f"{len(items)} Titel geladen — alle ausgewählt."
+              if items else "Playlist enthält keine spielbaren Titel.")
+    return items, options, value, status
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input("playlist-add-sel-btn", "n_clicks"),
+    Input("playlist-add-all-btn", "n_clicks"),
+    State("playlist-track-checklist", "value"),
+    State("playlist-tracks-store", "data"),
+    State("queue-store", "data"),
+    prevent_initial_call=True,
+)
+def add_playlist_tracks(_sel_clicks, _all_clicks, selected_ids,
+                        playlist_items, queue):
+    trigger = dash.callback_context.triggered_id
+    if trigger == "playlist-add-all-btn":
+        chosen = playlist_items or []
+    elif trigger == "playlist-add-sel-btn":
+        wanted = set(selected_ids or [])
+        chosen = [it for it in (playlist_items or [])
+                  if it["rowId"] in wanted]
+    else:
+        return dash.no_update
+    if not chosen:
+        return dash.no_update
+    return (queue or []) + [with_new_row_id(it) for it in chosen]
 
 @app.callback(
     Output("spotify-ts", "data"),

@@ -145,7 +145,11 @@ app.layout = dbc.Container([
                       placeholder="…oder Playlist-Link / URI einfügen"),
             dbc.Button("Laden", id="playlist-load-btn", color="primary"),
         ]),
-        html.Div(id="playlist-status", className="mt-2 text-muted"),
+        dbc.Stack([
+            html.Div(id="playlist-status", className="text-muted me-auto"),
+            dbc.Button("Alle / keine", id="playlist-toggle-all",
+                       size="sm", color="secondary", outline=True),
+        ], direction="horizontal", gap=2, className="mt-2"),
         dbc.Checklist(id="playlist-track-checklist", options=[], value=[],
                       className="mt-2"),
         dbc.ButtonGroup([
@@ -403,6 +407,21 @@ def load_playlist_tracks(selected_id, _clicks, url):
     status = (f"{len(items)} Titel geladen — alle ausgewählt."
               if items else "Playlist enthält keine spielbaren Titel.")
     return items, options, value, status
+
+
+@app.callback(
+    Output("playlist-track-checklist", "value", allow_duplicate=True),
+    Input("playlist-toggle-all", "n_clicks"),
+    State("playlist-track-checklist", "value"),
+    State("playlist-tracks-store", "data"),
+    prevent_initial_call=True,
+)
+def toggle_all_playlist_tracks(_clicks, selected, playlist_items):
+    """Flip the checklist between all selected and none."""
+    all_ids = [it["rowId"] for it in (playlist_items or [])]
+    if selected and len(selected) == len(all_ids):
+        return []
+    return all_ids
 
 
 @app.callback(

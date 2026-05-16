@@ -4,7 +4,8 @@ These exercise queue_logic in isolation: no Dash, no Spotify, no env.
 """
 
 from queue_logic import (track_to_item, find_entry, step_queue,
-                          with_new_row_id, reorder_queue)
+                          with_new_row_id, reorder_queue,
+                          clamp_start_ms, set_start_ms)
 
 
 def make_queue(*names):
@@ -45,6 +46,47 @@ def test_track_to_item_handles_missing_album_and_duration():
 def test_track_to_item_row_ids_are_unique():
     track = {"uri": "u", "name": "n", "artists": []}
     assert track_to_item(track)["rowId"] != track_to_item(track)["rowId"]
+
+
+def test_track_to_item_defaults_start_ms_to_zero():
+    assert track_to_item({"uri": "u", "name": "n", "artists": []})["start_ms"] == 0
+
+
+# --- clamp_start_ms ------------------------------------------------------
+
+def test_clamp_start_ms_within_range_kept():
+    assert clamp_start_ms(15000, 200000) == 15000
+
+
+def test_clamp_start_ms_negative_becomes_zero():
+    assert clamp_start_ms(-5000, 200000) == 0
+
+
+def test_clamp_start_ms_capped_before_track_end():
+    assert clamp_start_ms(999999, 200000) == 199000  # duration - 1s
+
+
+def test_clamp_start_ms_unknown_duration_only_floors():
+    assert clamp_start_ms(8000, 0) == 8000
+    assert clamp_start_ms(-1, 0) == 0
+
+
+# --- set_start_ms --------------------------------------------------------
+
+def test_set_start_ms_updates_only_target_and_clamps():
+    queue = [
+        {"rowId": "a", "duration_ms": 100000, "start_ms": 0},
+        {"rowId": "b", "duration_ms": 100000, "start_ms": 0},
+    ]
+    result = set_start_ms(queue, "b", 999999)
+    assert result[0]["start_ms"] == 0
+    assert result[1]["start_ms"] == 99000          # clamped to dur - 1s
+
+
+def test_set_start_ms_does_not_mutate_source():
+    queue = [{"rowId": "a", "duration_ms": 100000, "start_ms": 0}]
+    set_start_ms(queue, "a", 5000)
+    assert queue[0]["start_ms"] == 0
 
 
 # --- with_new_row_id -----------------------------------------------------

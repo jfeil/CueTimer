@@ -7,7 +7,8 @@ from flask import Flask, request, redirect, session
 import os
 
 from queue_logic import (track_to_item, find_entry, step_queue,
-                          with_new_row_id, reorder_queue)
+                          with_new_row_id, reorder_queue, set_start_ms,
+                          clamp_start_ms)
 from timer_logic import next_music_state, progress_percent
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
@@ -50,13 +51,14 @@ def get_spotify():
     return spotipy.Spotify(auth=token_info["access_token"])
 
 
-def control_player(action, device_id, uri=None):
+def control_player(action, device_id, uri=None, position_ms=0):
     """Apply a playback action through the Spotify Web API.
 
     Hides auth, device targeting and API error handling so callers only
-    express intent: "play_uri", "resume" or "pause". Returns True when
-    the command was issued, False if it could not be (not authenticated,
-    no active device, or the API rejected the request).
+    express intent: "play_uri", "resume", "pause" or "seek". play_uri
+    honours position_ms so a per-song start offset skips slow intros.
+    Returns True when the command was issued, False if it could not be
+    (not authenticated, no active device, or the API rejected it).
     """
     if not device_id:
         return False
@@ -65,11 +67,14 @@ def control_player(action, device_id, uri=None):
         return False
     try:
         if action == "play_uri":
-            sp.start_playback(device_id=device_id, uris=[uri])
+            sp.start_playback(device_id=device_id, uris=[uri],
+                              position_ms=position_ms or 0)
         elif action == "resume":
             sp.start_playback(device_id=device_id)
         elif action == "pause":
             sp.pause_playback(device_id=device_id)
+        elif action == "seek":
+            sp.seek_track(int(position_ms or 0), device_id=device_id)
         else:
             return False
         return True
@@ -266,8 +271,43 @@ def render_queue(queue):
                            size="sm", color="danger", outline=True,
                            title="Entfernen"),
             ], direction="horizontal", gap=2),
+            html.Div([
+                html.Small(f"Start ab {_fmt_duration(t.get('start_ms', 0))}",
+                           className="text-muted"),
+                dcc.Slider(
+                    id={"type": "queue-start", "row": t["rowId"]},
+                    min=0, max=max(t["duration_ms"], 1000), step=1000,
+                    value=t.get("start_ms", 0), marks=None,
+                    tooltip={"placement": "bottom"},
+                ),
+            ], className="mt-1"),
         ], id={"type": "queue-row", "row": t["rowId"]}))
     return items
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input({"type": "queue-start", "row": dash.ALL}, "value"),
+    State("queue-store", "data"),
+    prevent_initial_call=True,
+)
+def set_queue_start(_values, queue):
+    """Persist a row's start offset when its slider is released."""
+    trigger = dash.callback_context.triggered_id
+    if not trigger:
+        return dash.no_update
+    new_value = dash.callback_context.triggered[0]["value"]
+    if new_value is None:
+        return dash.no_update
+    entry = find_entry(queue, trigger["row"])
+    if entry is None:
+        return dash.no_update
+    # No-op when unchanged, otherwise re-rendering the slider would
+    # retrigger this callback forever.
+    if clamp_start_ms(new_value, entry["duration_ms"]) == \
+            entry.get("start_ms", 0):
+        return dash.no_update
+    return set_start_ms(queue, trigger["row"], new_value)
 
 
 # Re-arm SortableJS every time the queue list is re-rendered (Dash
@@ -566,7 +606,8 @@ def _start(entry, sdk_state, device_id):
     if sdk_state and sdk_state.get("uri") == entry["uri"]:
         control_player("resume", device_id)
     else:
-        control_player("play_uri", device_id, entry["uri"])
+        control_player("play_uri", device_id, entry["uri"],
+                       position_ms=entry.get("start_ms", 0))
 
 
 @app.callback(

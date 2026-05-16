@@ -23,7 +23,33 @@ def track_to_item(track):
         "artist": ", ".join(a["name"] for a in track.get("artists", [])),
         "img": images[-1]["url"] if images else None,
         "duration_ms": track.get("duration_ms", 0),
+        "start_ms": 0,
     }
+
+
+def clamp_start_ms(start_ms, duration_ms):
+    """Keep a per-song start offset inside the track.
+
+    Never negative and never at/after the end (which would start a
+    track that is already over). Falls back to non-negative when the
+    duration is unknown.
+    """
+    start = max(0, int(start_ms or 0))
+    if not duration_ms or duration_ms <= 0:
+        return start
+    return min(start, max(duration_ms - 1000, 0))
+
+
+def set_start_ms(queue, row_id, start_ms):
+    """Return the queue with one entry's clamped start offset updated."""
+    updated = []
+    for entry in queue or []:
+        if entry["rowId"] == row_id:
+            entry = dict(entry)
+            entry["start_ms"] = clamp_start_ms(start_ms,
+                                               entry.get("duration_ms", 0))
+        updated.append(entry)
+    return updated
 
 
 def with_new_row_id(entry):

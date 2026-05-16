@@ -27,6 +27,8 @@ function initializePlayer(token) {
         window._spotify_device_id = null;
     });
 
+    bindPlayerStateListener();
+
     player.connect().then(success => {
     if (success) {
         console.log("Player connected!");
@@ -113,48 +115,50 @@ window.addEventListener("message", (event) => {
 // }
 
 
-function updatePlayer() {
-    player.getCurrentState().then(state => {
-        if (!state || !state.track_window || !state.track_window.current_track) return;
-
-        const track = state.track_window.current_track;
-        const trackInfoDiv = document.getElementById("track-info");
-        if (trackInfoDiv) {
-            trackInfoDiv.innerHTML = `
-                <strong>${track.name}</strong> by ${track.artists.map(a => a.name).join(", ")}<br/>
-                <img src="${track.album.images[0].url}" width="100"/>
-            `;
-        }
-    });
+// Render the currently playing track into the track-info panel.
+function renderTrackInfo(track) {
+    const div = document.getElementById("track-info");
+    if (!div) return;
+    if (!track) {
+        div.innerHTML = "";
+        return;
+    }
+    const artists = track.artists.map(a => a.name).join(", ");
+    const cover = track.album.images.length ? track.album.images[0].url : "";
+    div.innerHTML = `<strong>${track.name}</strong> by ${artists}<br/>` +
+        (cover ? `<img src="${cover}" width="100"/>` : "");
 }
 
-setInterval(() => {
-    if (!player) return;
-    updatePlayer();
-}, 50);
+// Translate the SDK state into the flat shape the server consumes,
+// inferring track-end (paused at position 0 on the track we were playing)
+// since the SDK has no explicit "ended" event.
+let _lastTrackUri = null;
 
-let _playback_command = null;
-let lastCommandTimestamp = -1;
-
-setInterval(() => {
-    console.log(_playback_command);
-    if (!_playback_command) return;
-
-    // Dash renders dcc.Store content in a hidden div with JSON string inside
-    // So we parse its children text content
-    if (player) {
-        if (_playback_command.ts > lastCommandTimestamp) {
-            if (_playback_command) {
-                if (_playback_command.command === "play") {
-                    player.resume();
-                } else if (_playback_command.command === "pause") {
-                    player.pause();
-                } else if (_playback_command.command === "prev") {
-                    player.previousTrack();
-                } else if (_playback_command.command === "next") {
-                    player.nextTrack();
-                }
-            }
-        }
+function deriveSpotifyPlaystate(state) {
+    if (!state || !state.track_window || !state.track_window.current_track) {
+        return null;
     }
-}, 50); // poll every 1s
+    const track = state.track_window.current_track;
+    const ended = state.paused && state.position === 0 &&
+        _lastTrackUri === track.uri;
+    _lastTrackUri = track.uri;
+    return {
+        uri: track.uri,
+        paused: state.paused,
+        position: state.position,
+        duration: state.duration,
+        ended: ended,
+        ts: Date.now(),
+    };
+}
+
+// Single source of player updates: the SDK pushes a state on every
+// meaningful change, so no polling loop is needed.
+function bindPlayerStateListener() {
+    player.addListener("player_state_changed", state => {
+        const playstate = deriveSpotifyPlaystate(state);
+        window._spotify_playstate = playstate;
+        renderTrackInfo(state && state.track_window
+            ? state.track_window.current_track : null);
+    });
+}

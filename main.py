@@ -1,5 +1,3 @@
-import time
-
 import dash
 from dash import Input, Output, dcc, html, State
 import dash_bootstrap_components as dbc
@@ -59,6 +57,70 @@ def track_to_item(track):
         "duration_ms": track.get("duration_ms", 0),
     }
 
+
+def find_entry(queue, row_id):
+    """Return the queue entry with the given rowId, or None."""
+    for entry in queue or []:
+        if entry["rowId"] == row_id:
+            return entry
+    return None
+
+
+def step_queue(queue, current_row_id, direction):
+    """Return the queue entry to play for a navigation move.
+
+    direction is "first", "next" or "prev". Returns None when the move
+    falls off either end of the queue or the queue is empty. An unknown
+    current row is treated as "before the start", so "next" yields the
+    first entry.
+    """
+    if not queue:
+        return None
+    if direction == "first":
+        return queue[0]
+
+    index = None
+    for position, entry in enumerate(queue):
+        if entry["rowId"] == current_row_id:
+            index = position
+            break
+
+    if index is None:
+        return queue[0] if direction == "next" else None
+
+    target = index + 1 if direction == "next" else index - 1
+    if 0 <= target < len(queue):
+        return queue[target]
+    return None
+
+
+def control_player(action, device_id, uri=None):
+    """Apply a playback action through the Spotify Web API.
+
+    Hides auth, device targeting and API error handling so callers only
+    express intent: "play_uri", "resume" or "pause". Returns True when
+    the command was issued, False if it could not be (not authenticated,
+    no active device, or the API rejected the request).
+    """
+    if not device_id:
+        return False
+    sp = get_spotify()
+    if sp is None:
+        return False
+    try:
+        if action == "play_uri":
+            sp.start_playback(device_id=device_id, uris=[uri])
+        elif action == "resume":
+            sp.start_playback(device_id=device_id)
+        elif action == "pause":
+            sp.pause_playback(device_id=device_id)
+        else:
+            return False
+        return True
+    except spotipy.SpotifyException as exc:
+        print(f"Spotify playback error ({action}): {exc}")
+        return False
+
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
                 external_scripts=["https://sdk.scdn.co/spotify-player.js"],
@@ -79,8 +141,9 @@ app.layout = dbc.Container([
     dcc.Store(id="spotify-ts"),
     dcc.Store(id="data_memory", storage_type="memory", data={"running": False, "max_time": 0}),
     dcc.Store(id="timer_memory", storage_type="memory", data=default_time),
-    dcc.Store(id="playback-command", data=None),
     dcc.Store(id="device-id", storage_type="memory"),
+    dcc.Store(id="sdk-state", storage_type="memory"),
+    dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
     html.Br(),
@@ -114,10 +177,8 @@ app.layout = dbc.Container([
 
 app.clientside_callback(
     """
-    function(n, status, playback_data) {
+    function(n, status) {
         const ts = Date.now();
-        window._playback_command = playback_data;
-        console.log("Updated playback command:", window._playback_command);
         if (!status || status.state != window._spotify_status){
             return {state: window._spotify_status, ts: ts};
         } else {
@@ -128,7 +189,23 @@ app.clientside_callback(
     Output("spotify-status", "data"),
     Input("interval", "n_intervals"),
     State("spotify-status", "data"),
-    State("playback-command", "data")
+)
+
+app.clientside_callback(
+    """
+    function(n, current) {
+        const s = window._spotify_playstate || null;
+        if (!s) return window.dash_clientside.no_update;
+        if (current && current.uri === s.uri && current.paused === s.paused
+            && current.ended === s.ended) {
+            return window.dash_clientside.no_update;
+        }
+        return s;
+    }
+    """,
+    Output("sdk-state", "data"),
+    Input("interval", "n_intervals"),
+    State("sdk-state", "data"),
 )
 
 app.clientside_callback(
@@ -237,31 +314,75 @@ def update_main_layout(ts, status):
         ])
 
 @app.callback(
-    Output("playback-command", "data"),
+    Output("nowplaying", "data", allow_duplicate=True),
     Input("play-btn", "n_clicks"),
+    Input("pause-btn", "n_clicks"),
     Input("next-btn", "n_clicks"),
     Input("prev-btn", "n_clicks"),
-    Input("pause-btn", "n_clicks"),
-    prevent_initial_call=True
+    Input({"type": "queue-play", "row": dash.ALL}, "n_clicks"),
+    State("queue-store", "data"),
+    State("device-id", "data"),
+    State("nowplaying", "data"),
+    prevent_initial_call=True,
 )
-def trigger_play(*_):
-    current_time = time.time()
-    command = None
-    if dash.callback_context.triggered[0]["prop_id"] == "play-btn.n_clicks":
-        # send play command with a timestamp (to trigger each time)
-        command = "play"
-    elif dash.callback_context.triggered[0]["prop_id"] == "next-btn.n_clicks":
-        # send play command with a timestamp (to trigger each time)
-        command = "next"
-    elif dash.callback_context.triggered[0]["prop_id"] == "prev-btn.n_clicks":
-        # send play command with a timestamp (to trigger each time)
-        command = "prev"
-    elif dash.callback_context.triggered[0]["prop_id"] == "pause-btn.n_clicks":
-        # send play command with a timestamp (to trigger each time)
-        command = "pause"
-    if command:
-        print(command)
-        return {"command": command, "ts": current_time}
+def playback_controls(_play, _pause, _next, _prev, row_clicks,
+                      queue, device_id, nowplaying):
+    """Translate transport buttons into a single playback intent.
+
+    Resolves the target queue entry from the trigger, asks
+    control_player to apply it, and only then reports the new
+    now-playing entry so the rest of the app stays in sync.
+    """
+    trigger = dash.callback_context.triggered_id
+    if trigger is None:
+        return dash.no_update
+    current_row = (nowplaying or {}).get("rowId")
+
+    if trigger == "pause-btn":
+        control_player("pause", device_id)
+        return dash.no_update
+
+    if trigger == "play-btn":
+        if current_row is not None:
+            control_player("resume", device_id)
+            return dash.no_update
+        target = step_queue(queue, None, "first")
+    elif trigger == "next-btn":
+        target = step_queue(queue, current_row, "next")
+    elif trigger == "prev-btn":
+        target = step_queue(queue, current_row, "prev")
+    elif isinstance(trigger, dict) and trigger.get("type") == "queue-play":
+        if not any(row_clicks):
+            return dash.no_update
+        target = find_entry(queue, trigger["row"])
+    else:
+        return dash.no_update
+
+    if target is None:
+        return dash.no_update
+    if control_player("play_uri", device_id, target["uri"]):
+        return {"rowId": target["rowId"], "uri": target["uri"]}
+    return dash.no_update
+
+
+@app.callback(
+    Output("nowplaying", "data", allow_duplicate=True),
+    Input("sdk-state", "data"),
+    State("queue-store", "data"),
+    State("device-id", "data"),
+    State("nowplaying", "data"),
+    prevent_initial_call=True,
+)
+def auto_advance(sdk_state, queue, device_id, nowplaying):
+    """Advance to the next queue entry when the current track ends."""
+    if not sdk_state or not sdk_state.get("ended"):
+        return dash.no_update
+    current_row = (nowplaying or {}).get("rowId")
+    target = step_queue(queue, current_row, "next")
+    if target is None:
+        return dash.no_update
+    if control_player("play_uri", device_id, target["uri"]):
+        return {"rowId": target["rowId"], "uri": target["uri"]}
     return dash.no_update
 
 # Flask route for /login

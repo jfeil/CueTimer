@@ -108,7 +108,8 @@ app.layout = dbc.Container([
     dcc.Store(id="playlist-tracks-store", storage_type="memory", data=[]),
     dcc.Store(id="queue-order", storage_type="memory"),
     dcc.Store(id="sortable-init", storage_type="memory"),
-    dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
+    dcc.Store(id="nowplaying", storage_type="memory",
+              data={"rowId": None, "uri": None, "playing": False}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
     html.Br(),
@@ -521,6 +522,20 @@ def update_main_layout(ts, status):
                 "Player ist bereit", shown)
     return status["ts"], {}, "", "", hidden
 
+def _np(entry, playing):
+    """Build a now-playing record. playing=False means the entry is
+    only armed (pre-selected) and no audio is running for it yet."""
+    return {"rowId": entry["rowId"], "uri": entry["uri"], "playing": playing}
+
+
+def _is_preselecting(data):
+    """True while a match is running but the music window has not yet
+    opened. Transport next/prev then only arms the upcoming song so the
+    operator can stage it without interrupting play."""
+    return bool(data and data.get("running")
+                and data.get("music_phase", "idle") == "idle")
+
+
 @app.callback(
     Output("nowplaying", "data", allow_duplicate=True),
     Input("play-btn", "n_clicks"),
@@ -531,28 +546,36 @@ def update_main_layout(ts, status):
     State("queue-store", "data"),
     State("device-id", "data"),
     State("nowplaying", "data"),
+    State("data_memory", "data"),
     prevent_initial_call=True,
 )
 def playback_controls(_play, _pause, _next, _prev, row_clicks,
-                      queue, device_id, nowplaying):
+                      queue, device_id, nowplaying, data):
     """Translate transport buttons into a single playback intent.
 
-    Resolves the target queue entry from the trigger, asks
-    control_player to apply it, and only then reports the new
-    now-playing entry so the rest of the app stays in sync.
+    next/prev normally play immediately, but while a match is running
+    and the music window has not opened yet they only arm the upcoming
+    song (no audio), so the operator can pre-set what plays once the
+    timer reaches "Musik ab".
     """
     trigger = dash.callback_context.triggered_id
     if trigger is None:
         return dash.no_update
-    current_row = (nowplaying or {}).get("rowId")
+    nowplaying = nowplaying or {}
+    current_row = nowplaying.get("rowId")
 
     if trigger == "pause-btn":
         control_player("pause", device_id)
         return dash.no_update
 
     if trigger == "play-btn":
-        if current_row is not None:
-            control_player("resume", device_id)
+        entry = find_entry(queue, current_row)
+        if entry is not None:
+            if nowplaying.get("playing"):
+                control_player("resume", device_id)
+                return dash.no_update
+            if control_player("play_uri", device_id, entry["uri"]):
+                return _np(entry, True)
             return dash.no_update
         target = step_queue(queue, None, "first")
     elif trigger == "next-btn":
@@ -568,8 +591,13 @@ def playback_controls(_play, _pause, _next, _prev, row_clicks,
 
     if target is None:
         return dash.no_update
+
+    if trigger in ("next-btn", "prev-btn") and _is_preselecting(data):
+        # Arm only: move the pointer, leave playback untouched.
+        return _np(target, False)
+
     if control_player("play_uri", device_id, target["uri"]):
-        return {"rowId": target["rowId"], "uri": target["uri"]}
+        return _np(target, True)
     return dash.no_update
 
 
@@ -590,7 +618,7 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
     if target is None:
         return dash.no_update
     if control_player("play_uri", device_id, target["uri"]):
-        return {"rowId": target["rowId"], "uri": target["uri"]}
+        return _np(target, True)
     return dash.no_update
 
 
@@ -605,9 +633,10 @@ def auto_advance(sdk_state, queue, device_id, nowplaying):
 def apply_music_command(cmd, queue, device_id, nowplaying):
     """Execute the timer's music intent against the player.
 
-    "pause" stops playback but keeps now-playing intact so a later
-    resume continues where the break left off. "play" resumes the
-    current entry if there is one, otherwise starts the queue.
+    "pause" stops playback but keeps now-playing intact. "play" starts
+    the armed (pre-selected) entry from the top; if the entry was
+    already playing before a break it resumes instead of restarting;
+    with nothing selected it starts the queue.
     """
     if not cmd:
         return dash.no_update
@@ -618,13 +647,18 @@ def apply_music_command(cmd, queue, device_id, nowplaying):
         return dash.no_update
 
     if action == "play":
-        current_row = (nowplaying or {}).get("rowId")
-        if current_row and find_entry(queue, current_row):
-            control_player("resume", device_id)
+        nowplaying = nowplaying or {}
+        entry = find_entry(queue, nowplaying.get("rowId"))
+        if entry is not None:
+            if nowplaying.get("playing"):
+                control_player("resume", device_id)
+                return dash.no_update
+            if control_player("play_uri", device_id, entry["uri"]):
+                return _np(entry, True)
             return dash.no_update
         target = step_queue(queue, None, "first")
         if target and control_player("play_uri", device_id, target["uri"]):
-            return {"rowId": target["rowId"], "uri": target["uri"]}
+            return _np(target, True)
 
     return dash.no_update
 

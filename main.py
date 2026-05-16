@@ -198,12 +198,18 @@ app.layout = dbc.Container([
 
         dbc.Card([
             dbc.CardHeader(dbc.Stack([
-                html.Span("Warteschlange", className="me-auto fw-bold"),
+                dbc.Button([html.I(className="bi bi-chevron-expand me-2"),
+                            "Warteschlange"], id="queue-collapse-toggle",
+                           color="link",
+                           class_name="text-reset text-decoration-none "
+                                       "p-0 fw-bold me-auto"),
                 dbc.Button([html.I(className="bi bi-trash me-2"), "Leeren"],
                            id="queue-clear", color="danger", size="sm",
                            outline=True),
             ], direction="horizontal", gap=2)),
-            dbc.CardBody(dbc.ListGroup(id="spotify-tracks", flush=True)),
+            dbc.Collapse(
+                dbc.CardBody(dbc.ListGroup(id="spotify-tracks", flush=True)),
+                id="queue-collapse", is_open=True),
         ], class_name="mb-4"),
 
         dbc.Card([
@@ -602,6 +608,16 @@ def load_user_playlists(status):
     prevent_initial_call=True,
 )
 def toggle_playlist_collapse(_n, is_open):
+    return not is_open
+
+
+@app.callback(
+    Output("queue-collapse", "is_open"),
+    Input("queue-collapse-toggle", "n_clicks"),
+    State("queue-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_queue_collapse(_n, is_open):
     return not is_open
 
 

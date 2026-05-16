@@ -4,7 +4,7 @@ These exercise queue_logic in isolation: no Dash, no Spotify, no env.
 """
 
 from queue_logic import (track_to_item, find_entry, step_queue,
-                          with_new_row_id)
+                          with_new_row_id, reorder_queue)
 
 
 def make_queue(*names):
@@ -77,6 +77,32 @@ def test_find_entry_missing_returns_none():
 def test_find_entry_empty_and_none_queue():
     assert find_entry([], "a") is None
     assert find_entry(None, "a") is None
+
+
+# --- reorder_queue -------------------------------------------------------
+
+def test_reorder_applies_new_order():
+    queue = make_queue("a", "b", "c")
+    result = reorder_queue(queue, ["c", "a", "b"])
+    assert [e["rowId"] for e in result] == ["c", "a", "b"]
+
+
+def test_reorder_appends_unnamed_entries_in_place():
+    queue = make_queue("a", "b", "c", "d")
+    result = reorder_queue(queue, ["c", "a"])
+    assert [e["rowId"] for e in result] == ["c", "a", "b", "d"]
+
+
+def test_reorder_ignores_unknown_ids_without_dropping_tracks():
+    queue = make_queue("a", "b")
+    result = reorder_queue(queue, ["ghost", "b", "a"])
+    assert [e["rowId"] for e in result] == ["b", "a"]
+
+
+def test_reorder_empty_order_keeps_queue():
+    queue = make_queue("a", "b")
+    assert reorder_queue(queue, []) == queue
+    assert reorder_queue(queue, None) == queue
 
 
 # --- step_queue ----------------------------------------------------------

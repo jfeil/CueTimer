@@ -6,7 +6,8 @@ from spotipy import SpotifyOAuth
 from flask import Flask, request, redirect, session
 import os
 
-from queue_logic import track_to_item, find_entry, step_queue, with_new_row_id
+from queue_logic import (track_to_item, find_entry, step_queue,
+                          with_new_row_id, reorder_queue)
 from timer_logic import next_music_state
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
@@ -78,7 +79,10 @@ def control_player(action, device_id, uri=None):
 
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
-                external_scripts=["https://sdk.scdn.co/spotify-player.js"],
+                external_scripts=[
+                    "https://sdk.scdn.co/spotify-player.js",
+                    "https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js",
+                ],
                 external_stylesheets=[dbc.themes.DARKLY, dbc.icons.BOOTSTRAP, dbc_css],
                 suppress_callback_exceptions=True,
                 meta_tags=[
@@ -102,6 +106,8 @@ app.layout = dbc.Container([
     dcc.Store(id="music-command", storage_type="memory"),
     dcc.Store(id="search-store", storage_type="memory", data=[]),
     dcc.Store(id="playlist-tracks-store", storage_type="memory", data=[]),
+    dcc.Store(id="queue-order", storage_type="memory"),
+    dcc.Store(id="sortable-init", storage_type="memory"),
     dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
@@ -234,7 +240,9 @@ def render_queue(queue):
                          className="me-2 rounded") if t.get("img") else None
         items.append(dbc.ListGroupItem([
             dbc.Stack([
-                html.Span(f"{idx + 1}.", className="text-muted me-2"),
+                html.Span(f"⠿ {idx + 1}.", className="drag-handle text-muted me-2",
+                          style={"cursor": "grab", "touchAction": "none"},
+                          title="Ziehen zum Sortieren"),
                 thumb,
                 html.Div([
                     html.Div(t["name"], className="fw-bold"),
@@ -251,6 +259,33 @@ def render_queue(queue):
             ], direction="horizontal", gap=2),
         ], id={"type": "queue-row", "row": t["rowId"]}))
     return items
+
+
+# Re-arm SortableJS every time the queue list is re-rendered (Dash
+# replaces the DOM nodes, destroying any prior Sortable instance).
+app.clientside_callback(
+    """
+    function(children) {
+        setTimeout(window.initQueueSortable, 0);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("sortable-init", "data"),
+    Input("spotify-tracks", "children"),
+)
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input("queue-order", "data"),
+    State("queue-store", "data"),
+    prevent_initial_call=True,
+)
+def apply_queue_order(order, queue):
+    """Rearrange the queue to match an order produced by a drag."""
+    if not order or not order.get("ids"):
+        return dash.no_update
+    return reorder_queue(queue, order["ids"])
 
 
 @app.callback(

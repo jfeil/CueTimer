@@ -38,6 +38,22 @@ def with_new_row_id(entry):
     return clone
 
 
+def reorder_queue(queue, ordered_row_ids):
+    """Return the queue rearranged to match a list of rowIds.
+
+    Entries named in ordered_row_ids come first, in that order; any
+    entry not named (e.g. one that finished or was added during a drag)
+    keeps its relative position at the end. Unknown ids are ignored, so
+    a stale drag payload can never drop tracks.
+    """
+    by_id = {entry["rowId"]: entry for entry in queue or []}
+    named = [by_id[r] for r in (ordered_row_ids or []) if r in by_id]
+    named_ids = {entry["rowId"] for entry in named}
+    rest = [entry for entry in queue or []
+            if entry["rowId"] not in named_ids]
+    return named + rest
+
+
 def find_entry(queue, row_id):
     """Return the queue entry with the given rowId, or None."""
     for entry in queue or []:

@@ -162,3 +162,31 @@ function bindPlayerStateListener() {
             ? state.track_window.current_track : null);
     });
 }
+
+// Read the queue's DOM order back into the rowId list the server
+// understands. Dash serializes pattern-matching ids as JSON with keys
+// sorted alphabetically, so each row's element id parses to {row,type}.
+function readQueueOrder(list) {
+    return Array.from(list.children).map(el => {
+        try { return JSON.parse(el.id).row; } catch (e) { return null; }
+    }).filter(Boolean);
+}
+
+// (Re)attach SortableJS to the queue list. Called after every queue
+// re-render, so any stale instance is torn down first. Touch works
+// because dragging is restricted to the .drag-handle, leaving the rest
+// of the row free to scroll on a phone/tablet.
+window.initQueueSortable = function () {
+    const list = document.getElementById("spotify-tracks");
+    if (!list || !window.Sortable) return;
+    if (list._sortable) list._sortable.destroy();
+    list._sortable = window.Sortable.create(list, {
+        animation: 150,
+        handle: ".drag-handle",
+        onEnd: function () {
+            window.dash_clientside.set_props("queue-order", {
+                data: { ids: readQueueOrder(list), ts: Date.now() },
+            });
+        },
+    });
+};

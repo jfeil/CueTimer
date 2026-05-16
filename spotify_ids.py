@@ -42,3 +42,23 @@ def extract_playlist_tracks(items):
             continue
         tracks.append(track)
     return tracks
+
+
+def playlist_error_message(exc, playlist_id):
+    """Turn a Spotify API error into something the operator can act on.
+
+    Spotify-owned algorithmic/editorial playlists (the 37i9dQZF1…
+    namespace: Daily Mix, Radio, Editorial) lost third-party Web API
+    access in Nov 2024 and now 404, which is otherwise baffling. Kept
+    here (pure: only reads exc.http_status) so it stays unit-testable
+    without importing the Spotify client.
+    """
+    if getattr(exc, "http_status", None) == 404:
+        if (playlist_id or "").startswith("37i9dQZF1"):
+            return ("Spotify-eigene bzw. algorithmische Playlists "
+                    "(Daily Mix, Radio, Editorial) sind über die API "
+                    "nicht zugänglich. Bitte eine eigene Playlist "
+                    "verwenden (Songs ggf. in eigene Playlist kopieren).")
+        return ("Playlist nicht gefunden oder nicht zugänglich — "
+                "evtl. privat, gelöscht oder Spotify-eigen.")
+    return f"Playlist konnte nicht geladen werden: {exc}"

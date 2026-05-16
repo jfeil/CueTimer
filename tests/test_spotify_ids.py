@@ -1,6 +1,7 @@
 """Unit tests for the pure Spotify playlist helpers."""
 
-from spotify_ids import parse_playlist_id, extract_playlist_tracks
+from spotify_ids import (parse_playlist_id, extract_playlist_tracks,
+                         playlist_error_message)
 
 VALID_ID = "37i9dQZF1DXcBWIGoYBM5M"
 
@@ -48,3 +49,25 @@ def test_extract_keeps_only_playable_tracks():
 def test_extract_handles_empty_and_none():
     assert extract_playlist_tracks([]) == []
     assert extract_playlist_tracks(None) == []
+
+
+# --- playlist_error_message ----------------------------------------------
+
+class _Err(Exception):
+    def __init__(self, status):
+        self.http_status = status
+
+
+def test_error_message_editorial_404_is_specific():
+    msg = playlist_error_message(_Err(404), "37i9dQZF1E35y1vS12XyUK")
+    assert "algorithmische" in msg
+
+
+def test_error_message_other_404_is_generic():
+    msg = playlist_error_message(_Err(404), "myownplaylist123")
+    assert "nicht gefunden" in msg
+
+
+def test_error_message_non_404_keeps_detail():
+    msg = playlist_error_message(_Err(500), "x")
+    assert "konnte nicht geladen werden" in msg

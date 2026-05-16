@@ -2,7 +2,6 @@ import dash
 from dash import Input, Output, dcc, html, State
 import dash_bootstrap_components as dbc
 import spotipy
-from spotipy import SpotifyOAuth
 from flask import Flask, request, redirect
 import os
 import json
@@ -12,83 +11,15 @@ from queue_logic import (track_to_item, find_entry, step_queue,
                           clamp_start_ms, played_split)
 from timer_logic import (next_music_state, progress_percent, format_clock,
                          parse_duration)
-from spotify_ids import parse_playlist_id, extract_playlist_tracks
-
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# --- Configuration ---
-CLIENT_ID = os.environ["SPOTIFY_CLIENT_ID"]
-CLIENT_SECRET = os.environ["SPOTIFY_CLIENT_SECRET"]
-REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8050/callback")
-SCOPE = ("streaming,user-read-email,user-read-private,user-library-read,"
-         "playlist-read-private,playlist-read-collaborative")
-# Where spotipy persists the OAuth token. In a container point this at
-# a mounted volume so a redeploy keeps the operator signed in.
-CACHE_PATH = os.environ.get("SPOTIFY_CACHE_PATH", ".cache")
+from spotify_ids import (parse_playlist_id, extract_playlist_tracks,
+                         playlist_error_message)
+from spotify_client import (oauth, get_spotify, control_player,
+                            fetch_all_playlist_tracks)
 
 server = Flask(__name__)
 # A stable key keeps Flask sessions valid across restarts/workers;
 # falls back to ephemeral when unset (fine for local single use).
 server.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
-
-# Spotipy OAuth
-oauth = SpotifyOAuth(client_id=CLIENT_ID,
-                     client_secret=CLIENT_SECRET,
-                     redirect_uri=REDIRECT_URI,
-                     scope=SCOPE,
-                     cache_path=CACHE_PATH)
-
-
-def get_spotify():
-    """Return an authed spotipy client, or None if not usable.
-
-    validate_token refreshes an expired token *and* rejects a cached
-    token whose granted scopes are a subset of the ones we now require.
-    That last part matters: when SCOPE grows, a token minted under the
-    old scopes would otherwise keep working silently and the API would
-    just hide the newly-permitted data (e.g. private playlists). By
-    returning None instead, the UI tells the operator to reconnect.
-
-    A single operator drives one player, so the shared cache suffices.
-    """
-    token_info = oauth.validate_token(oauth.cache_handler.get_cached_token())
-    if not token_info:
-        return None
-    return spotipy.Spotify(auth=token_info["access_token"])
-
-
-def control_player(action, device_id, uri=None, position_ms=0):
-    """Apply a playback action through the Spotify Web API.
-
-    Hides auth, device targeting and API error handling so callers only
-    express intent: "play_uri", "resume", "pause" or "seek". play_uri
-    honours position_ms so a per-song start offset skips slow intros.
-    Returns True when the command was issued, False if it could not be
-    (not authenticated, no active device, or the API rejected it).
-    """
-    if not device_id:
-        return False
-    sp = get_spotify()
-    if sp is None:
-        return False
-    try:
-        if action == "play_uri":
-            sp.start_playback(device_id=device_id, uris=[uri],
-                              position_ms=position_ms or 0)
-        elif action == "resume":
-            sp.start_playback(device_id=device_id)
-        elif action == "pause":
-            sp.pause_playback(device_id=device_id)
-        elif action == "seek":
-            sp.seek_track(int(position_ms or 0), device_id=device_id)
-        else:
-            return False
-        return True
-    except spotipy.SpotifyException as exc:
-        print(f"Spotify playback error ({action}): {exc}")
-        return False
 
 dbc_css = "https://cdn.jsdelivr.net/gh/AnnMarieW/dash-bootstrap-templates/dbc.min.css"
 app = dash.Dash(__name__, server=server,
@@ -632,35 +563,6 @@ def add_search_result(_clicks, results, queue):
     return (queue or []) + [with_new_row_id(results[idx])]
 
 
-def _fetch_all_playlist_tracks(sp, playlist_id, cap=300):
-    """Page through a playlist and return its playable track objects.
-
-    Capped so a pathologically large playlist cannot stall the UI.
-    """
-    page = sp.playlist_items(playlist_id, limit=100)
-    tracks = extract_playlist_tracks(page["items"])
-    while page.get("next") and len(tracks) < cap:
-        page = sp.next(page)
-        tracks.extend(extract_playlist_tracks(page["items"]))
-    return tracks[:cap]
-
-
-def _playlist_error_message(exc, playlist_id):
-    """Turn a Spotify API error into something the operator can act on.
-
-    Spotify-owned algorithmic/editorial playlists (the 37i9dQZF1…
-    namespace: Daily Mix, Radio, Editorial) lost third-party Web API
-    access in Nov 2024 and now 404, which is otherwise baffling.
-    """
-    if getattr(exc, "http_status", None) == 404:
-        if (playlist_id or "").startswith("37i9dQZF1"):
-            return ("Spotify-eigene bzw. algorithmische Playlists "
-                    "(Daily Mix, Radio, Editorial) sind über die API "
-                    "nicht zugänglich. Bitte eine eigene Playlist "
-                    "verwenden (Songs ggf. in eigene Playlist kopieren).")
-        return ("Playlist nicht gefunden oder nicht zugänglich — "
-                "evtl. privat, gelöscht oder Spotify-eigen.")
-    return f"Playlist konnte nicht geladen werden: {exc}"
 
 
 @app.callback(
@@ -736,9 +638,9 @@ def load_playlist_tracks(selected_id, _clicks, url):
     if sp is None:
         return [], [], [], "Bitte zuerst mit Spotify verbinden."
     try:
-        raw_tracks = _fetch_all_playlist_tracks(sp, playlist_id)
+        raw_tracks = fetch_all_playlist_tracks(sp, playlist_id)
     except spotipy.SpotifyException as exc:
-        return [], [], [], _playlist_error_message(exc, playlist_id)
+        return [], [], [], playlist_error_message(exc, playlist_id)
 
     items = [track_to_item(t) for t in raw_tracks]
     value = [it["rowId"] for it in items]

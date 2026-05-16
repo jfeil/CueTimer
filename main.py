@@ -932,7 +932,7 @@ def callback():
               Output("timer_progress", "label"),
               Output("music-command", "data"),
               State("data_memory", "data"),
-              State("timer_data", "value"),
+              Input("timer_data", "value"),
               State("timer_memory", "data"),
               State("start_button", "children"),
               State("musik_start", "value"),
@@ -941,14 +941,21 @@ def callback():
               Input("interval", "n_intervals"))
 def update_timer(data, max_time, current_timer, button_label, music_start,
                  _start_clicks, _reset_clicks, n_intervals):
+    max_time = max_time or 0
     timer_interval = current_timer
     label_button = button_label
     trigger = dash.callback_context.triggered[0]["prop_id"]
     music_event = None
 
     if trigger == "reset_button.n_clicks":
+        # Explicit reset: apply a new duration immediately, even mid-run.
         timer_interval = max_time
         music_event = "reset"
+    elif trigger == "timer_data.value":
+        # Editing the duration while idle previews it straight away; a
+        # running match keeps counting until Reset is pressed.
+        if not data["running"]:
+            timer_interval = max_time
     elif trigger == "start_button.n_clicks":
         if button_label == "Start":
             if timer_interval <= 0:
@@ -957,8 +964,12 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
             label_button = "Stop"
             music_event = "start_match"
         else:
+            # Stop ends the attempt and rewinds to the set duration so
+            # the next Start is ready and it is visible right away.
             data["running"] = False
             label_button = "Start"
+            timer_interval = max_time
+            music_event = "reset"
     elif trigger == "interval.n_intervals" and data["running"]:
         timer_interval -= 1
         music_event = "tick"

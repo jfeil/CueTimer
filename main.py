@@ -18,8 +18,8 @@ load_dotenv()
 CLIENT_ID = os.environ["SPOTIFY_CLIENT_ID"]
 CLIENT_SECRET = os.environ["SPOTIFY_CLIENT_SECRET"]
 REDIRECT_URI = os.environ.get("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8050/callback")
-SCOPE = ("streaming,user-read-email,user-read-private,"
-         "user-library-read,playlist-read-private")
+SCOPE = ("streaming,user-read-email,user-read-private,user-library-read,"
+         "playlist-read-private,playlist-read-collaborative")
 
 server = Flask(__name__)
 server.secret_key = os.urandom(24)
@@ -32,16 +32,20 @@ oauth = SpotifyOAuth(client_id=CLIENT_ID,
 
 
 def get_spotify():
-    """Return an authed spotipy client, or None if not yet authenticated.
+    """Return an authed spotipy client, or None if not usable.
 
-    Reads the token from spotipy's cache and refreshes it transparently;
-    a single operator drives one player, so the shared cache is sufficient.
+    validate_token refreshes an expired token *and* rejects a cached
+    token whose granted scopes are a subset of the ones we now require.
+    That last part matters: when SCOPE grows, a token minted under the
+    old scopes would otherwise keep working silently and the API would
+    just hide the newly-permitted data (e.g. private playlists). By
+    returning None instead, the UI tells the operator to reconnect.
+
+    A single operator drives one player, so the shared cache suffices.
     """
-    token_info = oauth.cache_handler.get_cached_token()
+    token_info = oauth.validate_token(oauth.cache_handler.get_cached_token())
     if not token_info:
         return None
-    if oauth.is_token_expired(token_info):
-        token_info = oauth.refresh_access_token(token_info["refresh_token"])
     return spotipy.Spotify(auth=token_info["access_token"])
 
 

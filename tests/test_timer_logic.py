@@ -1,6 +1,6 @@
 """Unit tests for the pure music-phase state machine."""
 
-from timer_logic import next_music_state
+from timer_logic import next_music_state, progress_percent
 
 
 # --- start_match ---------------------------------------------------------
@@ -61,3 +61,20 @@ def test_tick_break_keeps_music_running():
 
 def test_unknown_event_is_inert():
     assert next_music_state("playing", 5, 10, "noop") == ("playing", None)
+
+
+# --- progress_percent ----------------------------------------------------
+
+def test_progress_percent_normal_range():
+    assert progress_percent(50, 200) == 25
+    assert progress_percent(200, 200) == 100
+
+
+def test_progress_percent_zero_total_does_not_divide():
+    assert progress_percent(0, 0) == 0
+    assert progress_percent(10, 0) == 0
+
+
+def test_progress_percent_clamps_out_of_range():
+    assert progress_percent(-5, 200) == 0      # ran past zero
+    assert progress_percent(300, 200) == 100   # never exceeds full

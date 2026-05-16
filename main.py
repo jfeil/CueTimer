@@ -8,7 +8,7 @@ import os
 
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue)
-from timer_logic import next_music_state
+from timer_logic import next_music_state, progress_percent
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
 from dotenv import load_dotenv
@@ -708,6 +708,7 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
         timer_interval -= 1
         music_event = "tick"
 
+    timer_interval = max(timer_interval, 0)
     data["max_time"] = max_time
 
     phase = data.get("music_phase", "idle")
@@ -725,7 +726,7 @@ def update_timer(data, max_time, current_timer, button_label, music_start,
     State("data_memory", "data"),
     Input("timer_memory", "data"))
 def update_progressbar(data, current_timer):
-    return current_timer / data["max_time"] * 100
+    return progress_percent(current_timer, data.get("max_time", 0))
 
 
 if __name__ == '__main__':

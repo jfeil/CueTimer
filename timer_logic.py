@@ -55,3 +55,14 @@ def next_music_state(phase, timer, music_start, event):
         return "break", None
 
     return phase, None
+
+
+def progress_percent(remaining, total):
+    """Countdown completion as a 0..100 value for the progress bar.
+
+    Guards the initial state (total == 0) and a countdown that has run
+    past zero, both of which would otherwise produce a bad bar value.
+    """
+    if not total or total <= 0:
+        return 0
+    return max(0, min(100, remaining / total * 100))

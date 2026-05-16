@@ -3,7 +3,8 @@
 These exercise queue_logic in isolation: no Dash, no Spotify, no env.
 """
 
-from queue_logic import track_to_item, find_entry, step_queue
+from queue_logic import (track_to_item, find_entry, step_queue,
+                          with_new_row_id)
 
 
 def make_queue(*names):
@@ -44,6 +45,22 @@ def test_track_to_item_handles_missing_album_and_duration():
 def test_track_to_item_row_ids_are_unique():
     track = {"uri": "u", "name": "n", "artists": []}
     assert track_to_item(track)["rowId"] != track_to_item(track)["rowId"]
+
+
+# --- with_new_row_id -----------------------------------------------------
+
+def test_with_new_row_id_changes_only_the_id():
+    original = make_queue("a")[0]
+    clone = with_new_row_id(original)
+    assert clone["rowId"] != original["rowId"]
+    assert {k: v for k, v in clone.items() if k != "rowId"} == \
+           {k: v for k, v in original.items() if k != "rowId"}
+
+
+def test_with_new_row_id_does_not_mutate_source():
+    original = make_queue("a")[0]
+    with_new_row_id(original)
+    assert original["rowId"] == "a"
 
 
 # --- find_entry ----------------------------------------------------------

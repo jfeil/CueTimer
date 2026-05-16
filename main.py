@@ -6,7 +6,7 @@ from spotipy import SpotifyOAuth
 from flask import Flask, request, redirect, session
 import os
 
-from queue_logic import track_to_item, find_entry, step_queue
+from queue_logic import track_to_item, find_entry, step_queue, with_new_row_id
 from timer_logic import next_music_state
 
 from dotenv import load_dotenv
@@ -94,6 +94,7 @@ app.layout = dbc.Container([
     dcc.Store(id="device-id", storage_type="memory"),
     dcc.Store(id="sdk-state", storage_type="memory"),
     dcc.Store(id="music-command", storage_type="memory"),
+    dcc.Store(id="search-store", storage_type="memory", data=[]),
     dcc.Store(id="nowplaying", storage_type="memory", data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
     dcc.Store(id="data_persistent", storage_type="local"),
@@ -115,6 +116,16 @@ app.layout = dbc.Container([
         html.Div(id="player-status"),
     ]),
     html.Div(id="track-info"),
+    html.Hr(),
+    dbc.Container([
+        html.H4("Songs suchen"),
+        dbc.InputGroup([
+            dbc.Input(id="search-input", placeholder="Titel oder Künstler…",
+                      debounce=True),
+            dbc.Button("Suchen", id="search-btn", color="primary"),
+        ]),
+        dbc.ListGroup(id="search-results", className="mt-2"),
+    ]),
     html.Hr(),
     dbc.Container([
         dbc.Stack([
@@ -231,6 +242,68 @@ def clear_queue(n):
     if not n:
         return dash.no_update
     return []
+
+
+def _search_row(idx, item):
+    """One search-result row: thumb, title/artist and an add button."""
+    thumb = html.Img(src=item["img"], height="40px",
+                     className="me-2 rounded") if item.get("img") else None
+    return dbc.ListGroupItem(dbc.Stack([
+        thumb,
+        html.Div([
+            html.Div(item["name"], className="fw-bold"),
+            html.Small(item["artist"], className="text-muted"),
+        ], className="me-auto"),
+        dbc.Button("+ Warteschlange",
+                   id={"type": "search-add", "idx": idx},
+                   size="sm", color="success", outline=True),
+    ], direction="horizontal", gap=2))
+
+
+@app.callback(
+    Output("search-store", "data"),
+    Output("search-results", "children"),
+    Input("search-btn", "n_clicks"),
+    Input("search-input", "n_submit"),
+    State("search-input", "value"),
+    prevent_initial_call=True,
+)
+def do_search(_clicks, _submit, query):
+    query = (query or "").strip()
+    if not query:
+        return [], dbc.ListGroupItem("Bitte einen Suchbegriff eingeben.",
+                                     color="dark")
+    sp = get_spotify()
+    if sp is None:
+        return [], dbc.ListGroupItem("Bitte zuerst mit Spotify verbinden.",
+                                     color="warning")
+    try:
+        results = sp.search(q=query, type="track", limit=10)
+    except spotipy.SpotifyException as exc:
+        return [], dbc.ListGroupItem(f"Suche fehlgeschlagen: {exc}",
+                                     color="danger")
+
+    items = [track_to_item(t) for t in results["tracks"]["items"]]
+    if not items:
+        return [], dbc.ListGroupItem("Keine Treffer.", color="dark")
+    return items, [_search_row(i, it) for i, it in enumerate(items)]
+
+
+@app.callback(
+    Output("queue-store", "data", allow_duplicate=True),
+    Input({"type": "search-add", "idx": dash.ALL}, "n_clicks"),
+    State("search-store", "data"),
+    State("queue-store", "data"),
+    prevent_initial_call=True,
+)
+def add_search_result(_clicks, results, queue):
+    trigger = dash.callback_context.triggered_id
+    if not trigger or not any(_clicks):
+        return dash.no_update
+    idx = trigger["idx"]
+    if idx >= len(results or []):
+        return dash.no_update
+    return (queue or []) + [with_new_row_id(results[idx])]
 
 @app.callback(
     Output("spotify-ts", "data"),

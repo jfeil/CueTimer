@@ -26,6 +26,18 @@ def track_to_item(track):
     }
 
 
+def with_new_row_id(entry):
+    """Return a copy of a queue entry with a fresh rowId.
+
+    Adding the same searched/playlist track more than once must yield
+    independent rows, otherwise removal and reordering (which key on
+    rowId) would act on every copy at once.
+    """
+    clone = dict(entry)
+    clone["rowId"] = uuid.uuid4().hex
+    return clone
+
+
 def find_entry(queue, row_id):
     """Return the queue entry with the given rowId, or None."""
     for entry in queue or []:

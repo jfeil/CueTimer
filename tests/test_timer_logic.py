@@ -1,6 +1,6 @@
 """Unit tests for the pure music-phase state machine."""
 
-from timer_logic import next_music_state, progress_percent
+from timer_logic import next_music_state, progress_percent, format_clock
 
 
 # --- start_match ---------------------------------------------------------
@@ -78,3 +78,16 @@ def test_progress_percent_zero_total_does_not_divide():
 def test_progress_percent_clamps_out_of_range():
     assert progress_percent(-5, 200) == 0      # ran past zero
     assert progress_percent(300, 200) == 100   # never exceeds full
+
+
+# --- format_clock --------------------------------------------------------
+
+def test_format_clock_minutes_and_seconds():
+    assert format_clock(200) == "3:20"
+    assert format_clock(9) == "0:09"
+    assert format_clock(0) == "0:00"
+
+
+def test_format_clock_clamps_negative_and_none():
+    assert format_clock(-5) == "0:00"
+    assert format_clock(None) == "0:00"

@@ -66,3 +66,9 @@ def progress_percent(remaining, total):
     if not total or total <= 0:
         return 0
     return max(0, min(100, remaining / total * 100))
+
+
+def format_clock(seconds):
+    """Whole seconds as 'M:SS' (clamped at zero)."""
+    seconds = max(0, int(seconds or 0))
+    return f"{seconds // 60}:{seconds % 60:02d}"

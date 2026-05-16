@@ -9,7 +9,7 @@ import os
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue, set_start_ms,
                           clamp_start_ms, played_split)
-from timer_logic import next_music_state, progress_percent
+from timer_logic import next_music_state, progress_percent, format_clock
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
 from dotenv import load_dotenv
@@ -1079,8 +1079,9 @@ def update_timer(data, max_time, current_timer, music_start,
     music_command = ({"command": command, "ts": n_intervals or 0}
                      if command else dash.no_update)
 
+    label = f"{format_clock(timer_interval)} ({timer_interval} s)"
     return (data, _start_button_label(data["running"]), timer_interval,
-            timer_interval, music_command)
+            label, music_command)
 
 
 @app.callback(

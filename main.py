@@ -170,13 +170,13 @@ app.layout = dbc.Container([
                            className="text-muted"),
                 html.Div(dbc.ButtonGroup([
                     dbc.Button(html.I(className="bi bi-skip-start-fill"),
-                               id="prev-btn", color="secondary",
+                               id="prev-btn", color="light",
                                outline=True, title="Vorheriger Titel"),
                     dbc.Button(html.I(className="bi bi-play-fill"),
                                id="playpause-btn", color="primary",
                                title="Wiedergabe / Pause"),
                     dbc.Button(html.I(className="bi bi-skip-end-fill"),
-                               id="next-btn", color="secondary",
+                               id="next-btn", color="light",
                                outline=True, title="Nächster Titel"),
                 ], size="lg"), className="d-flex justify-content-center mt-3"),
             ]),
@@ -197,14 +197,27 @@ app.layout = dbc.Container([
         ], class_name="mb-4"),
 
         dbc.Card([
-            dbc.CardHeader("Playlist hinzufügen"),
-            dbc.CardBody([
-                dbc.InputGroup([
-                    dbc.Select(id="playlist-select",
-                               placeholder="Eigene Playlist…"),
-                    dbc.Button("Playlists laden", id="load-playlists-btn",
-                               color="secondary", outline=True),
-                ], class_name="mb-2"),
+            dbc.CardHeader(dbc.Stack([
+                html.Span("Warteschlange", className="me-auto fw-bold"),
+                dbc.Button([html.I(className="bi bi-trash me-2"), "Leeren"],
+                           id="queue-clear", color="danger", size="sm",
+                           outline=True),
+            ], direction="horizontal", gap=2)),
+            dbc.CardBody(dbc.ListGroup(id="spotify-tracks", flush=True)),
+        ], class_name="mb-4"),
+
+        dbc.Card([
+            dbc.CardHeader(
+                dbc.Button(
+                    [html.I(className="bi bi-chevron-expand me-2"),
+                     "Playlist hinzufügen"],
+                    id="playlist-collapse-toggle", color="link",
+                    class_name="text-reset text-decoration-none p-0 fw-bold"),
+            ),
+            dbc.Collapse(dbc.CardBody([
+                dbc.Select(id="playlist-select",
+                           placeholder="Eigene Playlist wählen…",
+                           class_name="mb-2"),
                 dbc.InputGroup([
                     dbc.Input(id="playlist-url",
                               placeholder="…oder Playlist-Link / URI"),
@@ -215,7 +228,7 @@ app.layout = dbc.Container([
                     html.Div(id="playlist-status",
                              className="text-muted me-auto"),
                     dbc.Button("Alle / keine", id="playlist-toggle-all",
-                               size="sm", color="secondary", outline=True),
+                               size="sm", color="light", outline=True),
                 ], direction="horizontal", gap=2, class_name="mt-3"),
                 dbc.Checklist(id="playlist-track-checklist", options=[],
                               value=[], className="mt-2"),
@@ -226,17 +239,7 @@ app.layout = dbc.Container([
                     dbc.Button("Alle hinzufügen", id="playlist-add-all-btn",
                                color="success"),
                 ], class_name="mt-3"),
-            ]),
-        ], class_name="mb-4"),
-
-        dbc.Card([
-            dbc.CardHeader(dbc.Stack([
-                html.Span("Warteschlange", className="me-auto fw-bold"),
-                dbc.Button([html.I(className="bi bi-trash me-2"), "Leeren"],
-                           id="queue-clear", color="danger", size="sm",
-                           outline=True),
-            ], direction="horizontal", gap=2)),
-            dbc.CardBody(dbc.ListGroup(id="spotify-tracks", flush=True)),
+            ]), id="playlist-collapse", is_open=False),
         ], class_name="mb-4"),
     ]),
 ], style={"maxWidth": "760px"}, className="pb-5")
@@ -573,10 +576,13 @@ def _fetch_all_playlist_tracks(sp, playlist_id, cap=300):
 @app.callback(
     Output("playlist-select", "options"),
     Output("playlist-status", "children", allow_duplicate=True),
-    Input("load-playlists-btn", "n_clicks"),
+    Input("spotify-status", "data"),
     prevent_initial_call=True,
 )
-def load_user_playlists(_clicks):
+def load_user_playlists(status):
+    """Load the operator's playlists implicitly once the player is up."""
+    if not status or status.get("state") != "player-ready":
+        return dash.no_update, dash.no_update
     sp = get_spotify()
     if sp is None:
         return [], "Bitte zuerst mit Spotify verbinden."
@@ -587,6 +593,16 @@ def load_user_playlists(_clicks):
     options = [{"label": p["name"], "value": p["id"]}
                for p in playlists if p]
     return options, f"{len(options)} Playlists geladen."
+
+
+@app.callback(
+    Output("playlist-collapse", "is_open"),
+    Input("playlist-collapse-toggle", "n_clicks"),
+    State("playlist-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_playlist_collapse(_n, is_open):
+    return not is_open
 
 
 @app.callback(

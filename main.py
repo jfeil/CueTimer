@@ -10,7 +10,8 @@ import json
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue, set_start_ms,
                           clamp_start_ms, played_split)
-from timer_logic import next_music_state, progress_percent, format_clock
+from timer_logic import (next_music_state, progress_percent, format_clock,
+                         parse_duration)
 from spotify_ids import parse_playlist_id, extract_playlist_tracks
 
 from dotenv import load_dotenv
@@ -150,14 +151,16 @@ app.layout = dbc.Container([
                          className="mb-3", style={"height": "28px"}),
             dbc.Row([
                 dbc.Col([
-                    dbc.Label("Spieldauer (Sekunden)"),
-                    dbc.Input(id="timer_data", type="number",
-                              value=default_time),
+                    dbc.Label("Spieldauer (Sek. oder M:SS / H:MM:SS)"),
+                    dbc.Input(id="timer_data", type="text",
+                              value=str(default_time),
+                              placeholder="z. B. 200 oder 3:20"),
                 ], md=6),
                 dbc.Col([
-                    dbc.Label("Musik ab (Sek. Restzeit)"),
-                    dbc.Input(id="musik_start", type="number",
-                              value=default_musik),
+                    dbc.Label("Musik ab (Restzeit, Sek. oder M:SS)"),
+                    dbc.Input(id="musik_start", type="text",
+                              value=str(default_musik),
+                              placeholder="z. B. 10 oder 0:10"),
                     dbc.Checkbox(id="new-song-each",
                                  label="Neuer Song für jeden Countdown",
                                  value=False, class_name="mt-2"),
@@ -1039,7 +1042,8 @@ def _start_button_label(running):
               Input("interval", "n_intervals"))
 def update_timer(data, max_time, current_timer, music_start,
                  _start_clicks, _reset_clicks, n_intervals):
-    max_time = max_time or 0
+    max_time = parse_duration(max_time, 0)
+    music_start = parse_duration(music_start, default_musik)
     timer_interval = current_timer
     trigger = dash.callback_context.triggered[0]["prop_id"]
     music_event = None

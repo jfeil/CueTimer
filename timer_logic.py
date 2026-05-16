@@ -72,3 +72,31 @@ def format_clock(seconds):
     """Whole seconds as 'M:SS' (clamped at zero)."""
     seconds = max(0, int(seconds or 0))
     return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def parse_duration(text, default=0):
+    """Parse a duration into seconds.
+
+    Accepts plain seconds ("200"), "M:SS" ("3:20") or "H:MM:SS"
+    ("1:02:03") — i.e. up to two colons; parts need not be zero-padded.
+    Returns ``default`` for blank or malformed input rather than
+    raising, so a half-typed field never crashes the timer callback.
+    """
+    if text is None:
+        return default
+    text = str(text).strip()
+    if not text:
+        return default
+    parts = text.split(":")
+    if len(parts) > 3:
+        return default
+    try:
+        nums = [int(p) for p in parts]
+    except ValueError:
+        return default
+    if any(n < 0 for n in nums):
+        return default
+    seconds = 0
+    for n in nums:               # base-60 accumulate: s, m:s, h:m:s
+        seconds = seconds * 60 + n
+    return seconds

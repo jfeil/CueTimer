@@ -1,6 +1,7 @@
 """Unit tests for the pure music-phase state machine."""
 
-from timer_logic import next_music_state, progress_percent, format_clock
+from timer_logic import (next_music_state, progress_percent, format_clock,
+                          parse_duration)
 
 
 # --- start_match ---------------------------------------------------------
@@ -91,3 +92,27 @@ def test_format_clock_minutes_and_seconds():
 def test_format_clock_clamps_negative_and_none():
     assert format_clock(-5) == "0:00"
     assert format_clock(None) == "0:00"
+
+
+# --- parse_duration ------------------------------------------------------
+
+def test_parse_duration_plain_seconds():
+    assert parse_duration("200") == 200
+    assert parse_duration(200) == 200
+
+
+def test_parse_duration_minutes_and_hours():
+    assert parse_duration("3:20") == 200
+    assert parse_duration("1:02:03") == 3723
+
+
+def test_parse_duration_blank_or_bad_returns_default():
+    assert parse_duration("", default=10) == 10
+    assert parse_duration(None, default=7) == 7
+    assert parse_duration("abc", default=5) == 5
+    assert parse_duration("1:2:3:4", default=9) == 9
+    assert parse_duration("-1:30", default=4) == 4
+
+
+def test_parse_duration_roundtrips_with_format_clock():
+    assert parse_duration(format_clock(200)) == 200

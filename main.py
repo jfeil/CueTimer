@@ -113,6 +113,8 @@ app.layout = dbc.Container([
     dcc.Store(id="playlist-tracks-store", storage_type="memory", data=[]),
     dcc.Store(id="queue-order", storage_type="memory"),
     dcc.Store(id="sortable-init", storage_type="memory"),
+    dcc.Store(id="position-sync", storage_type="memory"),
+    dcc.Store(id="seek-sink", storage_type="memory"),
     dcc.Store(id="nowplaying", storage_type="memory",
               data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
@@ -142,6 +144,13 @@ app.layout = dbc.Container([
                                         "display": "none"}),
     ]),
     html.Div(id="track-info"),
+    html.Div([
+        dcc.Slider(id="position-slider", min=0, max=1, step=1000, value=0,
+                   marks=None, updatemode="mouseup",
+                   tooltip={"placement": "bottom"}),
+        html.Small("0:00 / 0:00", id="position-label",
+                   className="text-muted"),
+    ], className="mt-2"),
     html.Hr(),
     dbc.Container([
         html.H4("Songs suchen"),
@@ -234,6 +243,58 @@ app.clientside_callback(
     Input("interval", "n_intervals"),
     State("device-id", "data"),
 )
+
+# Smooth playback position: the SDK only emits on play/pause/seek/track
+# change, so between events we interpolate from the last reported
+# position plus elapsed wall-clock (only while not paused). The same
+# value is mirrored into position-sync so the seek callback can tell a
+# user drag apart from this once-a-second programmatic update.
+app.clientside_callback(
+    """
+    function(n) {
+        const s = window._spotify_playstate;
+        if (!s) return [window.dash_clientside.no_update,
+                         window.dash_clientside.no_update,
+                         window.dash_clientside.no_update,
+                         window.dash_clientside.no_update];
+        const elapsed = s.paused ? 0 : (Date.now() - s.ts);
+        const pos = Math.max(0, Math.min(s.duration, s.position + elapsed));
+        const fmt = ms => {
+            const t = Math.round(ms / 1000);
+            return Math.floor(t / 60) + ":" + String(t % 60).padStart(2, "0");
+        };
+        return [Math.max(1, s.duration), pos,
+                fmt(pos) + " / " + fmt(s.duration), pos];
+    }
+    """,
+    Output("position-slider", "max"),
+    Output("position-slider", "value"),
+    Output("position-label", "children"),
+    Output("position-sync", "data"),
+    Input("interval", "n_intervals"),
+)
+
+
+@app.callback(
+    Output("seek-sink", "data"),
+    Input("position-slider", "value"),
+    State("position-sync", "data"),
+    State("device-id", "data"),
+    prevent_initial_call=True,
+)
+def seek_position(value, synced, device_id):
+    """Seek only when the operator actually moved the slider.
+
+    The interpolation callback sets value and position-sync to the same
+    number every tick, so a near-match means this is that programmatic
+    update, not a drag.
+    """
+    if value is None or synced is None:
+        return dash.no_update
+    if abs(value - synced) <= 2000:
+        return dash.no_update
+    control_player("seek", device_id, position_ms=value)
+    return dash.no_update
 
 
 def _fmt_duration(ms):

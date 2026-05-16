@@ -3,8 +3,9 @@ from dash import Input, Output, dcc, html, State
 import dash_bootstrap_components as dbc
 import spotipy
 from spotipy import SpotifyOAuth
-from flask import Flask, request, redirect, session
+from flask import Flask, request, redirect
 import os
+import json
 
 from queue_logic import (track_to_item, find_entry, step_queue,
                           with_new_row_id, reorder_queue, set_start_ms,
@@ -140,7 +141,6 @@ app.layout = dbc.Container([
     dcc.Store(id="nowplaying", storage_type="memory",
               data={"rowId": None, "uri": None}),
     dcc.Store(id="queue-store", storage_type="local", data=[]),
-    dcc.Store(id="data_persistent", storage_type="local"),
     html.H1("Cue Timer", className="text-center my-4"),
 
     dbc.Card([
@@ -826,6 +826,8 @@ def update_main_layout(ts, status):
     Only toggles visibility/status text — every control keeps a stable
     id in the layout so its callbacks always resolve.
     """
+    if not status:
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
     if ts and ts >= status["ts"]:
         return ts, dash.no_update, dash.no_update, dash.no_update
 
@@ -1003,12 +1005,14 @@ def login():
 def callback():
     code = request.args.get('code')
     token_info = oauth.get_access_token(code, as_dict=True)
-    session['token_info'] = token_info
-    access_token = token_info['access_token']
-    # Send token back to main window via JS postMessage
+    # JSON-encode the token so it cannot break out of the JS string,
+    # and guard window.opener in case the popup was detached.
+    payload = json.dumps({"token": token_info["access_token"]})
     return f"""
     <script>
-        window.opener.postMessage({{ token: "{access_token}" }}, window.location.origin);
+        if (window.opener) {{
+            window.opener.postMessage({payload}, window.location.origin);
+        }}
         window.close();
     </script>
     """

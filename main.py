@@ -99,7 +99,6 @@ default_musik = 10
 
 
 app.layout = dbc.Container([
-    html.H1("Fussball Timer"),
     dcc.Interval(id="interval", interval=1000),
     dcc.Store(id="spotify-status"),
     dcc.Store(id="spotify-ts"),
@@ -138,13 +137,13 @@ app.layout = dbc.Container([
                               value=default_musik),
                 ], md=6),
             ], class_name="g-3"),
-            dbc.ButtonGroup([
+            html.Div(dbc.ButtonGroup([
                 dbc.Button([html.I(className="bi bi-arrow-counterclockwise me-2"),
                             "Reset"], id="reset_button", color="danger",
                            outline=True),
                 dbc.Button([html.I(className="bi bi-play-fill me-2"), "Start"],
                            id="start_button", color="success"),
-            ], class_name="mt-3"),
+            ]), className="d-flex justify-content-center mt-3"),
         ]),
     ], class_name="mb-4"),
 
@@ -234,6 +233,8 @@ app.layout = dbc.Container([
                     html.Div(id="playlist-status",
                              className="text-muted me-auto"),
                     dbc.Button("Alle / keine", id="playlist-toggle-all",
+                               size="sm", color="light", outline=True),
+                    dbc.Button("Ansicht leeren", id="playlist-clear-view",
                                size="sm", color="light", outline=True),
                 ], direction="horizontal", gap=2, class_name="mt-3"),
                 dbc.Checklist(id="playlist-track-checklist", options=[],
@@ -621,6 +622,12 @@ def toggle_queue_collapse(_n, is_open):
     return not is_open
 
 
+def _playlist_options(items):
+    """Checklist options (label/value) for a list of queue entries."""
+    return [{"label": f"{it['name']} — {it['artist']}",
+             "value": it["rowId"]} for it in items]
+
+
 @app.callback(
     Output("playlist-tracks-store", "data"),
     Output("playlist-track-checklist", "options"),
@@ -651,12 +658,10 @@ def load_playlist_tracks(selected_id, _clicks, url):
         return [], [], [], f"Playlist konnte nicht geladen werden: {exc}"
 
     items = [track_to_item(t) for t in raw_tracks]
-    options = [{"label": f"{it['name']} — {it['artist']}",
-                "value": it["rowId"]} for it in items]
     value = [it["rowId"] for it in items]
     status = (f"{len(items)} Titel geladen — alle ausgewählt."
               if items else "Playlist enthält keine spielbaren Titel.")
-    return items, options, value, status
+    return items, _playlist_options(items), value, status
 
 
 @app.callback(
@@ -676,6 +681,10 @@ def toggle_all_playlist_tracks(_clicks, selected, playlist_items):
 
 @app.callback(
     Output("queue-store", "data", allow_duplicate=True),
+    Output("playlist-tracks-store", "data", allow_duplicate=True),
+    Output("playlist-track-checklist", "options", allow_duplicate=True),
+    Output("playlist-track-checklist", "value", allow_duplicate=True),
+    Output("playlist-status", "children", allow_duplicate=True),
     Input("playlist-add-sel-btn", "n_clicks"),
     Input("playlist-add-all-btn", "n_clicks"),
     State("playlist-track-checklist", "value"),
@@ -685,18 +694,43 @@ def toggle_all_playlist_tracks(_clicks, selected, playlist_items):
 )
 def add_playlist_tracks(_sel_clicks, _all_clicks, selected_ids,
                         playlist_items, queue):
+    """Append chosen tracks to the queue and drop them from the view.
+
+    Removing what was just added gives immediate visual feedback and
+    stops the same tracks being queued twice.
+    """
     trigger = dash.callback_context.triggered_id
+    items = playlist_items or []
     if trigger == "playlist-add-all-btn":
-        chosen = playlist_items or []
+        chosen = items
     elif trigger == "playlist-add-sel-btn":
         wanted = set(selected_ids or [])
-        chosen = [it for it in (playlist_items or [])
-                  if it["rowId"] in wanted]
+        chosen = [it for it in items if it["rowId"] in wanted]
     else:
-        return dash.no_update
+        return (dash.no_update,) * 5
     if not chosen:
-        return dash.no_update
-    return (queue or []) + [with_new_row_id(it) for it in chosen]
+        return (dash.no_update, dash.no_update, dash.no_update,
+                dash.no_update, "Keine Titel ausgewählt.")
+
+    chosen_ids = {it["rowId"] for it in chosen}
+    remaining = [it for it in items if it["rowId"] not in chosen_ids]
+    new_queue = (queue or []) + [with_new_row_id(it) for it in chosen]
+    status = f"{len(chosen)} Titel zur Warteschlange hinzugefügt."
+    return (new_queue, remaining, _playlist_options(remaining),
+            [it["rowId"] for it in remaining], status)
+
+
+@app.callback(
+    Output("playlist-tracks-store", "data", allow_duplicate=True),
+    Output("playlist-track-checklist", "options", allow_duplicate=True),
+    Output("playlist-track-checklist", "value", allow_duplicate=True),
+    Output("playlist-status", "children", allow_duplicate=True),
+    Input("playlist-clear-view", "n_clicks"),
+    prevent_initial_call=True,
+)
+def clear_playlist_view(_n):
+    """Empty the loaded-playlist view without touching the queue."""
+    return [], [], [], "Ansicht geleert."
 
 @app.callback(
     Output("spotify-ts", "data"),
